@@ -1,0 +1,1337 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>PRO System Monitor</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js"></script>
+  <style>
+    /* ===== CSS Variables (Dark default) ===== */
+    :root {
+      --bg: #0b0f1a;
+      --surface: #131827;
+      --surface-2: #1b2333;
+      --surface-3: #232d42;
+      --border: #2a3548;
+      --text: #e8edf5;
+      --text-2: #94a3b8;
+      --text-3: #64748b;
+      --primary: #3b82f6;
+      --primary-dim: #1d4ed8;
+      --success: #10b981;
+      --success-bg: rgba(16,185,129,.12);
+      --warning: #f59e0b;
+      --warning-bg: rgba(245,158,11,.12);
+      --danger: #ef4444;
+      --danger-bg: rgba(239,68,68,.12);
+      --info: #06b6d4;
+      --radius-sm: 8px;
+      --radius: 12px;
+      --radius-lg: 16px;
+      --shadow: 0 1px 3px rgba(0,0,0,.3), 0 1px 2px rgba(0,0,0,.2);
+    }
+    .light {
+      --bg: #f1f5f9;
+      --surface: #ffffff;
+      --surface-2: #f8fafc;
+      --surface-3: #e2e8f0;
+      --border: #cbd5e1;
+      --text: #0f172a;
+      --text-2: #475569;
+      --text-3: #94a3b8;
+      --shadow: 0 1px 3px rgba(0,0,0,.08), 0 1px 2px rgba(0,0,0,.06);
+    }
+
+    /* ===== Reset ===== */
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    html{font-size:16px;-webkit-text-size-adjust:100%}
+    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Inter,Roboto,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;overflow-x:hidden;line-height:1.5}
+    a{color:var(--primary);text-decoration:none}
+
+    /* ===== Scrollbar ===== */
+    ::-webkit-scrollbar{width:6px;height:6px}
+    ::-webkit-scrollbar-track{background:transparent}
+    ::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
+
+    /* ===== Layout ===== */
+    .app{max-width:1440px;margin:0 auto;padding:12px}
+    @media(min-width:768px){.app{padding:20px}}
+
+    /* ===== Header ===== */
+    .header{display:flex;flex-wrap:wrap;align-items:center;gap:12px;padding:16px;background:var(--surface);border-radius:var(--radius-lg);border:1px solid var(--border);margin-bottom:16px;box-shadow:var(--shadow)}
+    .header-brand{display:flex;align-items:center;gap:12px;flex:1;min-width:0}
+    .header-brand h1{font-size:1.25rem;font-weight:700;white-space:nowrap;background:linear-gradient(135deg,var(--primary),var(--info));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+    .header-brand .sub{font-size:.75rem;color:var(--text-2);white-space:nowrap}
+    @media(min-width:768px){.header-brand h1{font-size:1.5rem}}
+    .header-actions{display:flex;gap:8px;flex-wrap:wrap}
+    .btn{display:inline-flex;align-items:center;gap:6px;padding:8px 14px;border:none;border-radius:var(--radius-sm);font-size:.8rem;font-weight:600;cursor:pointer;transition:all .15s;white-space:nowrap;color:var(--text);background:var(--surface-3)}
+    .btn:hover{filter:brightness(1.15)}
+    .btn-primary{background:var(--primary);color:#fff}
+    .btn-primary:hover{background:var(--primary-dim)}
+    .btn-icon{padding:8px;min-width:36px;justify-content:center}
+    .btn-sm{padding:4px 10px;font-size:.7rem}
+    .btn-active{background:var(--primary);color:#fff}
+    .badge{display:inline-block;padding:2px 10px;border-radius:99px;font-size:.7rem;font-weight:600}
+
+    /* ===== Health Hero ===== */
+    .hero{display:grid;grid-template-columns:auto 1fr;gap:16px;padding:20px;background:var(--surface);border-radius:var(--radius-lg);border:1px solid var(--border);margin-bottom:16px;box-shadow:var(--shadow)}
+    .hero-gauge{display:flex;flex-direction:column;align-items:center;justify-content:center;width:110px;height:110px;position:relative}
+    .hero-gauge svg{width:110px;height:110px;transform:rotate(-90deg)}
+    .hero-gauge circle{fill:none;stroke-width:8;stroke:var(--surface-3)}
+    .hero-gauge .track{stroke:var(--surface-3)}
+    .hero-gauge .fill{stroke:var(--success);stroke-dasharray:251.2;stroke-dashoffset:50.24;stroke-linecap:round;transition:stroke-dashoffset .6s ease,stroke .3s}
+    .hero-score{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font-size:2rem;font-weight:800;text-align:center;line-height:1}
+    .hero-score small{display:block;font-size:.65rem;font-weight:500;color:var(--text-2)}
+    .hero-info{display:flex;flex-direction:column;justify-content:center;min-width:0}
+    .hero-label{font-size:.8rem;color:var(--text-2)}
+    .hero-value{font-size:1.6rem;font-weight:700;word-break:break-word}
+    .hero-meta{font-size:.75rem;color:var(--text-3);margin-top:4px}
+    @media(max-width:480px){.hero{grid-template-columns:1fr;text-align:center}.hero-gauge{margin:0 auto}.hero-info{align-items:center}}
+
+    /* ===== Dashboard Grid ===== */
+    .grid{display:grid;gap:16px;grid-template-columns:1fr}
+    @media(min-width:768px){.grid{grid-template-columns:1fr 1fr}}
+    @media(min-width:1200px){.grid{grid-template-columns:1fr 1fr 1fr}}
+
+    /* ===== Cards ===== */
+    .card{background:var(--surface);border-radius:var(--radius-lg);border:1px solid var(--border);padding:16px;box-shadow:var(--shadow);transition:border-color .2s,box-shadow .2s}
+    .card:hover{border-color:var(--primary)}
+    .card-full{grid-column:1/-1}
+    .card-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;gap:8px;flex-wrap:wrap}
+    .card-title{font-size:.95rem;font-weight:600;display:flex;align-items:center;gap:8px}
+    .card-badge{font-size:.7rem;padding:2px 8px;border-radius:99px;background:var(--surface-3);color:var(--text-2)}
+
+    /* ===== Metric Tiles ===== */
+    .metrics{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-bottom:14px}
+    .metrics-3{grid-template-columns:repeat(3,1fr)}
+    @media(max-width:480px){.metrics-3{grid-template-columns:repeat(2,1fr)}}
+    .metric{background:var(--surface-2);padding:12px;border-radius:var(--radius-sm);text-align:center;cursor:pointer;transition:transform .15s,box-shadow .15s,border-color .2s,background .2s;border:1px solid transparent}
+    .metric:hover{border-color:var(--primary);transform:translateY(-2px);box-shadow:0 4px 12px rgba(0,0,0,.15)}
+    .metric:active{transform:scale(0.98)}
+    .metric.active{border-color:var(--primary);background:rgba(59,130,246,.08);box-shadow:0 0 0 1px var(--primary)}
+    .metric-value{font-size:1.5rem;font-weight:700;line-height:1.2}
+    .metric-value .unit{font-size:.75rem;font-weight:400;color:var(--text-2)}
+    .metric-label{font-size:.68rem;color:var(--text-3);text-transform:uppercase;letter-spacing:.4px;margin-top:4px}
+    .metric.warning .metric-value{color:var(--warning)}
+    .metric.danger .metric-value{color:var(--danger)}
+    .metric.good .metric-value{color:var(--success)}
+
+    /* ===== Time Range Buttons ===== */
+    .time-range{display:flex;gap:4px;margin-bottom:10px;flex-wrap:wrap}
+    .time-btn{padding:3px 8px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--text-3);font-size:.7rem;cursor:pointer;transition:all .15s}
+    .time-btn:hover{border-color:var(--primary);color:var(--text)}
+    .time-btn.active{background:var(--primary);color:#fff;border-color:var(--primary)}
+
+    /* ===== Progress Bar / Usage Bar ===== */
+    .usage-bar{height:6px;background:var(--surface-3);border-radius:3px;overflow:hidden;margin-top:8px}
+    .usage-fill{height:100%;border-radius:3px;transition:width .5s ease,background .3s}
+    .usage-fill.good{background:var(--success)}
+    .usage-fill.warning{background:var(--warning)}
+    .usage-fill.danger{background:var(--danger)}
+
+    /* ===== Chart Containers ===== */
+    .chart-wrap{position:relative;height:200px;width:100%}
+    @media(min-width:768px){.chart-wrap{height:220px}}
+    .chart-wrap-sm{height:120px}
+
+    /* ===== GPU ===== */
+    .gpu-grid{display:grid;gap:12px;margin-top:12px}
+    .gpu-item{background:var(--surface-2);padding:16px;border-radius:var(--radius);border:1px solid var(--border)}
+    .gpu-name{font-weight:600;font-size:.9rem;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px}
+    .gpu-name .throttle-warn{font-size:.7rem;padding:2px 8px;border-radius:99px;background:var(--danger-bg);color:var(--danger);font-weight:700}
+    .gpu-stats{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
+    @media(min-width:500px){.gpu-stats{grid-template-columns:repeat(4,1fr)}}
+    .gpu-stat{text-align:center;padding:8px;background:var(--surface);border-radius:var(--radius-sm)}
+    .gpu-stat-val{font-size:1.1rem;font-weight:700}
+    .gpu-stat-lbl{font-size:.65rem;color:var(--text-3);text-transform:uppercase}
+
+    /* ===== CPU Load Avg + Per-Core ===== */
+    .cpu-meta{display:flex;gap:12px;margin:8px 0 6px;flex-wrap:wrap;font-size:.78rem}
+    .load-avg{color:var(--text-2);display:flex;align-items:center;gap:2px}
+    .la-label{font-weight:600;margin-right:4px;color:var(--text-3)}
+    .la-val,.la-unit{color:var(--text-2)}
+    .la-sep{color:var(--text-3);margin:0 1px}
+    .core-grid{display:flex;flex-wrap:wrap;gap:2px;align-items:center}
+    .core-item{display:flex;align-items:center;gap:4px;background:var(--surface-2);padding:2px 6px;border-radius:4px;font-size:.65rem}
+    .core-lbl{color:var(--text-3);font-weight:600;width:16px}
+    .core-val{color:var(--text-2);font-weight:600;min-width:28px;text-align:right}
+    .core-item .usage-bar{flex:1;min-width:24px}
+
+    /* ===== Per-Partition Table ===== */
+    .part-grid{display:grid;grid-template-columns:1fr;gap:6px;margin-top:8px;font-size:.75rem}
+    .part-item{display:grid;grid-template-columns:auto 1fr auto auto;gap:8px;align-items:center;background:var(--surface-2);padding:6px 10px;border-radius:8px}
+    .part-mount{font-weight:600;color:var(--text)}
+    .part-pct{min-width:28px;text-align:right;font-weight:600}
+    .part-size{color:var(--text-3);font-size:.7rem}
+
+    /* ===== Interface Grid ===== */
+    .iface-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:6px;margin-top:8px}
+    .iface-item{background:var(--surface-2);padding:8px 12px;border-radius:8px;font-size:.75rem}
+    .iface-name{font-weight:600;color:var(--text);margin-bottom:4px}
+    .iface-stat{display:flex;justify-content:space-between;color:var(--text-2);font-size:.7rem}
+    .iface-stat .val{font-weight:600}
+
+    /* ===== Llama Card ===== */
+    .llama-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-top:10px}
+    .llama-stat{text-align:center;padding:12px;background:var(--surface-2);border-radius:var(--radius-sm);border:1px solid var(--border)}
+    .llama-stat .val{font-size:1.2rem;font-weight:700}
+    .llama-stat .lbl{font-size:.65rem;color:var(--text-3);text-transform:uppercase;margin-top:2px}
+    .llama-offline{display:flex;align-items:center;justify-content:center;gap:8px;padding:20px;color:var(--text-3)}
+    .llama-online{display:flex;align-items:center;gap:6px;font-size:.85rem;color:var(--text-2);margin-top:4px}
+    .llama-online .dot{width:10px;height:10px;border-radius:50%;display:inline-block}
+    .llama-online .dot.online{background:var(--success);box-shadow:0 0 6px var(--success)}
+    .llama-online .dot.offline{background:var(--danger)}
+
+    /* ===== Thermal & Fans Card ===== */
+    .therm-grid{display:flex;flex-direction:column;gap:4px;margin-top:8px}
+    .therm-section-title{font-size:.75rem;font-weight:600;color:var(--text-2);margin-bottom:6px;display:flex;align-items:center;gap:6px}
+    .therm-item{display:flex;align-items:center;gap:8px;padding:4px 8px;background:var(--surface-2);border-radius:6px;margin-bottom:3px;font-size:.75rem}
+    .therm-label{min-width:60px;font-weight:600;color:var(--text);white-space:nowrap}
+    .therm-bar-wrap{display:flex;align-items:center;gap:8px;flex:1}
+    .therm-val{min-width:70px;text-align:right;font-weight:700;font-size:.8rem;font-variant-numeric:tabular-nums}
+
+    /* ===== Processes Table ===== */
+    .table-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
+    table{width:100%;border-collapse:collapse;font-size:.82rem}
+    th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--border);white-space:nowrap}
+    th{color:var(--text-2);font-weight:600;font-size:.7rem;text-transform:uppercase;letter-spacing:.4px;position:sticky;top:0;background:var(--surface);z-index:1}
+    tr:hover td{background:var(--surface-2)}
+    .proc-name{max-width:160px;overflow:hidden;text-overflow:ellipsis}
+    @media(max-width:480px){td,th{padding:6px 6px;font-size:.75rem}}
+
+    /* ===== Alerts ===== */
+    .alerts{display:flex;flex-direction:column;gap:8px;padding:0}
+    .alert-item{display:flex;align-items:start;gap:10px;padding:10px 14px;border-radius:var(--radius-sm);font-size:.82rem;border-left:3px solid}
+    .alert-item.warning{background:var(--warning-bg);border-color:var(--warning);color:var(--warning)}
+    .alert-item.critical{background:var(--danger-bg);border-color:var(--danger);color:var(--danger)}
+    .alert-severity{font-weight:700;font-size:.65rem;text-transform:uppercase}
+    .alert-source{font-weight:600}
+    .alert-msg{color:var(--text-2)}
+
+    /* ===== Status Bar ===== */
+    .status-bar{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:center;padding:12px 16px;background:var(--surface);border-radius:var(--radius);border:1px solid var(--border);margin-top:16px;font-size:.78rem;color:var(--text-2)}
+    .status-bar .dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:4px}
+    .status-bar .dot.online{background:var(--success);box-shadow:0 0 6px var(--success)}
+    .status-bar .dot.offline{background:var(--danger)}
+
+    /* ===== Toast ===== */
+    .toast{position:fixed;bottom:30px;left:50%;transform:translateX(-50%);padding:10px 24px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);box-shadow:0 8px 30px rgba(0,0,0,.4);z-index:9999;font-size:.85rem;opacity:0;transition:opacity .3s;pointer-events:none}
+    .toast.show{opacity:1}
+
+    /* ===== Responsive Tuning ===== */
+    @media(max-width:480px){
+      .header-actions .btn span{display:none}
+      .card{padding:12px}
+      .metric{padding:10px}
+      .metric-value{font-size:1.2rem}
+      .chart-wrap{height:160px}
+      .gpu-stats{grid-template-columns:repeat(2,1fr)}
+      .core-item{font-size:.6rem;padding:1px 4px}
+      .core-lbl{width:12px}
+      .core-val{min-width:20px}
+      .part-item{grid-template-columns:1fr auto;font-size:.7rem}
+      .part-item .usage-bar{display:none}
+      .iface-grid{grid-template-columns:1fr 1fr}
+      table{font-size:.72rem}
+      th,td{padding:5px 4px}
+      .proc-name{max-width:100px}
+      .gpu-stat{padding:6px}
+      .gpu-stat-val{font-size:.95rem}
+    }
+
+    /* Smooth fade-in */
+    @keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+    .card{animation:fadeIn .3s ease}
+    .card:nth-child(2){animation-delay:.05s}
+    .card:nth-child(3){animation-delay:.1s}
+    .card:nth-child(4){animation-delay:.15s}
+  </style>
+</head>
+<body>
+
+<div class="app">
+
+  <!-- HEADER -->
+  <header class="header">
+    <div class="header-brand">
+      <h1>⚡ PRO Monitor</h1>
+      <span class="sub" id="header-hostname">— connecting…</span>
+    </div>
+    <div class="header-actions">
+      <button class="btn btn-icon" onclick="toggleTheme()" title="Toggle Theme">🌓</button>
+      <button class="btn btn-icon" onclick="exportData()" title="Export JSON">📥</button>
+      <button class="btn btn-primary" onclick="fetchAll()" title="Refresh now"><span>🔄</span><span> Refresh</span></button>
+    </div>
+  </header>
+
+  <!-- HEALTH HERO -->
+  <div class="hero" id="hero">
+    <div class="hero-gauge">
+      <svg viewBox="0 0 100 100">
+        <circle class="track" cx="50" cy="50" r="40"/>
+        <circle class="fill" id="gaugeFill" cx="50" cy="50" r="40"/>
+      </svg>
+      <div class="hero-score" id="heroScore">--<small>health</small></div>
+    </div>
+    <div class="hero-info">
+      <div class="hero-label">System Status</div>
+      <div class="hero-value" id="heroStatus">Initialising…</div>
+      <div class="hero-meta" id="heroMeta"></div>
+    </div>
+  </div>
+
+  <!-- DASHBOARD GRID -->
+  <div class="grid">
+
+    <!-- CPU Card -->
+    <div class="card" id="cpu-card">
+      <div class="card-header">
+        <span class="card-title">🔥 CPU</span>
+        <span class="card-badge" id="cpu-badge">--</span>
+      </div>
+      <div class="metrics">
+        <div class="metric" id="cpu-temp-metric"><div class="metric-value" id="cpu-temp">--<span class="unit">°C</span></div><div class="metric-label">Temp</div></div>
+        <div class="metric" id="cpu-usage-metric"><div class="metric-value" id="cpu-usage">--<span class="unit">%</span></div><div class="metric-label">Usage</div></div>
+        <div class="metric" id="cpu-freq-metric"><div class="metric-value" id="cpu-freq">--<span class="unit">GHz</span></div><div class="metric-label">Freq</div></div>
+        <div class="metric" id="cpu-cores-metric"><div class="metric-value" id="cpu-cores">--<span class="unit"></span></div><div class="metric-label">Cores</div></div>
+      </div>
+      <div class="usage-bar"><div class="usage-fill good" id="cpu-bar" style="width:0%"></div></div>
+    <div class="cpu-meta">
+      <div class="load-avg"><span class="la-label">Load</span><span class="la-val" id="cpu-load-1m">--</span><span class="la-sep">/</span><span id="cpu-load-5m">--</span><span class="la-sep">/</span><span id="cpu-load-15m">--</span><span class="la-unit">(1/5/15m)</span></div>
+    </div>
+    <div class="core-grid" id="cpu-core-grid" style="margin-bottom:10px"></div>
+      <div class="time-range" id="cpu-time-range">
+        <button class="time-btn active" data-min="0">ALL</button>
+        <button class="time-btn" data-min="5">5m</button>
+        <button class="time-btn" data-min="10">10m</button>
+        <button class="time-btn" data-min="15">15m</button>
+      </div>
+      <div class="chart-wrap"><canvas id="chartCpuTemp"></canvas></div>
+    </div>
+
+    <!-- RAM Card -->
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">💾 RAM</span>
+        <span class="card-badge" id="ram-badge">--</span>
+      </div>
+      <div class="metrics">
+        <div class="metric" id="ram-pct-metric"><div class="metric-value" id="ram-pct">--<span class="unit">%</span></div><div class="metric-label">Used %</div></div>
+        <div class="metric" id="ram-used-metric"><div class="metric-value" id="ram-used">--<span class="unit">GB</span></div><div class="metric-label">Used / Total</div></div>
+      </div>
+      <div class="usage-bar"><div class="usage-fill good" id="ram-bar" style="width:0%"></div></div>
+    <div class="ram-meta" style="display:flex;gap:14px;margin:6px 0;flex-wrap:wrap;font-size:.75rem">
+      <span>💽 Swap: <span id="ram-swap-pct">--</span>% (<span id="ram-swap-used">--</span>GB / <span id="ram-swap-total">--</span>GB)</span>
+      <span style="color:var(--text-3)">↕ Si <span id="ram-swap-sin">--</span> / So <span id="ram-swap-sout">--</span> GB</span>
+    </div>
+      <div class="time-range" id="ram-time-range">
+        <button class="time-btn active" data-min="0">ALL</button>
+        <button class="time-btn" data-min="5">5m</button>
+        <button class="time-btn" data-min="10">10m</button>
+        <button class="time-btn" data-min="15">15m</button>
+      </div>
+      <div class="chart-wrap"><canvas id="chartRam"></canvas></div>
+    </div>
+
+    <!-- Disk Card -->
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">💿 Storage</span>
+        <span class="card-badge" id="disk-badge">--</span>
+      </div>
+      <div class="metrics">
+        <div class="metric" id="disk-pct-metric"><div class="metric-value" id="disk-pct">--<span class="unit">%</span></div><div class="metric-label">Used %</div></div>
+        <div class="metric" id="disk-free-metric"><div class="metric-value" id="disk-free">--<span class="unit">GB</span></div><div class="metric-label">Free</div></div>
+      </div>
+      <div class="usage-bar"><div class="usage-fill good" id="disk-bar" style="width:0%"></div></div>
+    <div class="part-grid" id="disk-part-grid" style="margin-top:8px"></div>
+      <div class="time-range" id="disk-time-range">
+        <button class="time-btn active" data-min="0">ALL</button>
+        <button class="time-btn" data-min="5">5m</button>
+        <button class="time-btn" data-min="10">10m</button>
+        <button class="time-btn" data-min="15">15m</button>
+      </div>
+      <div class="chart-wrap"><canvas id="chartDisk"></canvas></div>
+    </div>
+
+    <!-- Network Card -->
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">🌐 Network</span>
+        <span class="card-badge" id="net-badge">--</span>
+      </div>
+      <div class="metrics">
+        <div class="metric" id="net-dl-metric"><div class="metric-value" id="net-dl">--<span class="unit">Mbps</span></div><div class="metric-label">Download</div></div>
+        <div class="metric" id="net-ul-metric"><div class="metric-value" id="net-ul">--<span class="unit">Mbps</span></div><div class="metric-label">Upload</div></div>
+      </div>
+      <div class="time-range" id="net-time-range">
+        <button class="time-btn active" data-min="0">ALL</button>
+        <button class="time-btn" data-min="5">5m</button>
+        <button class="time-btn" data-min="10">10m</button>
+        <button class="time-btn" data-min="15">15m</button>
+      </div>
+      <div class="chart-wrap"><canvas id="chartNet"></canvas></div>
+    <div class="iface-grid" id="iface-grid"></div>
+    </div>
+
+    <!-- Disk I/O Card -->
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">💽 Disk I/O</span>
+        <span class="card-badge">throughput</span>
+      </div>
+      <div class="metrics">
+        <div class="metric" id="io-read-metric"><div class="metric-value" id="io-read">--<span class="unit">MB/s</span></div><div class="metric-label">Read</div></div>
+        <div class="metric" id="io-write-metric"><div class="metric-value" id="io-write">--<span class="unit">MB/s</span></div><div class="metric-label">Write</div></div>
+      </div>
+      <div class="time-range" id="io-time-range">
+        <button class="time-btn active" data-min="0">ALL</button>
+        <button class="time-btn" data-min="5">5m</button>
+        <button class="time-btn" data-min="10">10m</button>
+        <button class="time-btn" data-min="15">15m</button>
+      </div>
+      <div class="chart-wrap"><canvas id="chartIo"></canvas></div>
+    </div>
+
+    <!-- CPU Usage History Card -->
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">📈 CPU Load History</span>
+        <span class="card-badge">history</span>
+      </div>
+      <div class="time-range" id="cpuPct-time-range">
+        <button class="time-btn active" data-min="0">ALL</button>
+        <button class="time-btn" data-min="5">5m</button>
+        <button class="time-btn" data-min="10">10m</button>
+        <button class="time-btn" data-min="15">15m</button>
+      </div>
+      <div class="chart-wrap"><canvas id="chartCpuPct"></canvas></div>
+    </div>
+
+  </div>
+
+  <!-- GPU SECTION -->
+  <div class="card card-full" id="gpu-card" style="margin-top:16px;display:none">
+    <div class="card-header">
+      <span class="card-title">🎮 GPU</span>
+      <span class="card-badge" id="gpu-badge">--</span>
+    </div>
+    <div class="gpu-grid" id="gpuGrid"></div>
+    <div class="time-range" id="gpu-time-range">
+      <button class="time-btn active" data-min="0">ALL</button>
+      <button class="time-btn" data-min="5">5m</button>
+      <button class="time-btn" data-min="10">10m</button>
+      <button class="time-btn" data-min="15">15m</button>
+    </div>
+    <div class="chart-wrap" style="margin-top:14px;height:200px"><canvas id="chartGpuTemp"></canvas></div>
+  </div>
+
+  <!-- GPU Frequency Card (separate chart) -->
+  <div class="card card-full" id="gpu-freq-card" style="margin-top:16px;display:none">
+    <div class="card-header">
+      <span class="card-title">🎮 GPU Core Clock</span>
+      <span class="card-badge" id="gpu-freq-badge">-- MHz</span>
+    </div>
+    <div class="time-range" id="gpu-freq-time-range">
+      <button class="time-btn active" data-min="0">ALL</button>
+      <button class="time-btn" data-min="5">5m</button>
+      <button class="time-btn" data-min="10">10m</button>
+      <button class="time-btn" data-min="15">15m</button>
+    </div>
+    <div class="chart-wrap" style="height:200px"><canvas id="chartGpuFreq"></canvas></div>
+  </div>
+
+  <!-- THERMAL & FANS CARD -->
+  <div class="card card-full" style="margin-top:16px" id="thermal-card">
+    <div class="card-header">
+      <span class="card-title">🌡️ Thermal & Fans</span>
+      <span class="card-badge" id="thermal-badge">—</span>
+    </div>
+    <div id="thermalBody">
+      <div style="color:var(--text-3);font-size:.85rem;padding:12px 0">No thermal data available</div>
+    </div>
+  </div>
+
+  <!-- LLAMA SERVER CARD -->
+  <div class="card card-full" style="margin-top:16px" id="llama-card">
+    <div class="card-header">
+      <span class="card-title">🧠 LLM Server (llama)</span>
+      <span class="card-badge" id="llama-badge">offline</span>
+    </div>
+    <div id="llamaBody">
+      <div class="llama-offline">⬤ llama-server not reachable on :8080</div>
+    </div>
+  </div>
+
+  <!-- DOCKER CONTAINERS CARD -->
+  <div class="card card-full" style="margin-top:16px" id="docker-card">
+    <div class="card-header">
+      <span class="card-title">🐳 Docker Containers</span>
+      <span class="card-badge" id="docker-badge">0</span>
+    </div>
+    <div id="dockerBody"><div style="color:var(--text-3);font-size:.85rem;padding:12px 0">Docker not available</div></div>
+  </div>
+
+  <!-- PINNED PROCESSES CARD -->
+  <div class="card card-full" style="margin-top:16px" id="pinned-card">
+    <div class="card-header">
+      <span class="card-title">📌 Pinned Processes</span>
+      <span class="card-badge">tracked</span>
+    </div>
+    <div id="pinnedBody"><div style="color:var(--text-3);font-size:.85rem;padding:12px 0">No tracked processes</div></div>
+  </div>
+
+  <!-- PROCESSES SECTION -->
+  <div class="card card-full" style="margin-top:16px">
+    <div class="card-header">
+      <span class="card-title">⚙️ Top Processes</span>
+      <div style="display:flex;gap:6px">
+        <button class="btn btn-sm" onclick="sortProcs('cpu')">CPU</button>
+        <button class="btn btn-sm" onclick="sortProcs('memory')">RAM</button>
+        <button class="btn btn-sm" onclick="sortProcs('ram_mb')">RAM MB</button>
+      </div>
+    </div>
+    <div class="table-wrap"><table><thead><tr>
+      <th>PID</th><th>Name</th><th>CPU%</th><th>RAM%</th><th>RAM MB</th><th>Status</th>
+    </tr></thead><tbody id="procBody"></tbody></table></div>
+  </div>
+
+  <!-- ALERTS SECTION -->
+  <div class="card card-full" style="margin-top:16px" id="alerts-card">
+    <div class="card-header">
+      <span class="card-title">🔔 Alerts</span>
+      <span class="card-badge" id="alert-count">0</span>
+    </div>
+    <div class="alerts" id="alertList"><div style="color:var(--text-3);font-size:.85rem;padding:8px 0">No active alerts</div></div>
+  </div>
+
+  <!-- STATUS BAR -->
+  <div class="status-bar">
+    <span><span class="dot online" id="statusDot"></span><span id="statusIndicator">Connected</span></span>
+    <span id="statusUptime">Uptime: --</span>
+    <span id="statusSamples">Samples: 0</span>
+    <span id="statusRefresh">Refreshing in <span id="countdown">5</span>s</span>
+  </div>
+
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// CONFIG
+const REFRESH_MS = {{ refresh_interval }};
+const CONFIG = {{ config|safe }};
+const API_KEY = '{{ api_key }}';
+// Helper: add API key to URLs
+function _api(url){
+  if(!API_KEY) return url;
+  return url + (url.indexOf('?')>0?'&':'?') + 'key=' + API_KEY;
+}
+
+// STATE
+let isDark = true;
+let charts = {};
+let historyData = null;
+let statusData = null;
+let sortBy = 'cpu';
+let countdown = Math.ceil(REFRESH_MS/1000);
+let lastFetch = 0;
+let llamaData = null;
+
+// Time range state: {chartId: minutesFilter}
+let timeRanges = {};
+
+// CPU chart metric tracking
+let cpuChartMetric = 'cpu_temp';
+// GPU chart metric tracking
+let gpuChartMetric = 'gpu_temp';
+
+// UTILITY
+const $ = id => document.getElementById(id);
+const fmt = (n,d=1) => Number(n).toFixed(d);
+const speedStr = bps => {
+  if (bps>=1e9) return fmt(bps/1e9,2)+' Gbps';
+  if (bps>=1e6) return fmt(bps/1e6,2)+' Mbps';
+  if (bps>=1e3) return fmt(bps/1e3,1)+' Kbps';
+  return fmt(bps,0)+' bps';
+};
+const bytesToG = b => fmt(b/(1024**3),1);
+const timeAgo = s => {
+  if (s<60) return fmt(s,0)+'s';
+  if (s<3600) return fmt(s/60,0)+'m '+fmt(s%60,0)+'s';
+  const h=Math.floor(s/3600); const m=Math.floor((s%3600)/60);
+  return h+'h '+m+'m';
+};
+const toast = msg => {
+  const t=$('toast'); t.textContent=msg; t.classList.add('show');
+  clearTimeout(t._h); t._h=setTimeout(()=>t.classList.remove('show'),2500);
+};
+
+// Time range helpers
+function getTimeRange(chartId) {
+  return timeRanges[chartId] || 0; // 0 = ALL
+}
+
+function filterByTime(arr, minutes) {
+  if (!arr || arr.length===0 || minutes<=0) return arr;
+  const cutoff = (Date.now()/1000) - (minutes*60);
+  return arr.filter(p => p.t >= cutoff);
+}
+
+// Setup time range buttons
+function setupTimeButtons() {
+  document.querySelectorAll('.time-range').forEach(container => {
+    container.querySelectorAll('.time-btn').forEach(btn => {
+      btn.addEventListener('click', function() {
+        container.querySelectorAll('.time-btn').forEach(b => b.classList.remove('active'));
+        this.classList.add('active');
+        const chartId = container.id.replace('-time-range', '');
+        const min = parseInt(this.dataset.min) || 0;
+        timeRanges[chartId] = min;
+        // Force chart redraw
+        if (historyData) updateCharts(historyData);
+      });
+    });
+  });
+}
+
+// THEME
+function toggleTheme(){
+  isDark=!isDark;
+  document.body.classList.toggle('light',!isDark);
+  Chart.defaults.color = getComputedStyle(document.body).getPropertyValue('--text-2').trim();
+  Object.values(charts).forEach(c=>{if(c)c.update()});
+}
+
+// GAUGE
+const CIRCUMFERENCE = 2 * Math.PI * 40;
+function updateGauge(score){
+  const fill = $('gaugeFill');
+  const offset = CIRCUMFERENCE - (score/100)*CIRCUMFERENCE;
+  fill.style.strokeDashoffset = offset;
+  fill.style.stroke = score>=80?'var(--success)':score>=50?'var(--warning)':'var(--danger)';
+  $('heroScore').innerHTML = Math.round(score)+'<small>health</small>';
+}
+
+// FETCH
+async function fetchStatus(){
+  try {
+    const r = await fetch(_api('/api/status'));
+    if(!r.ok) throw new Error(r.statusText);
+    return await r.json();
+  } catch(e){
+    $('statusIndicator').textContent = 'Disconnected';
+    $('statusDot').className = 'dot offline';
+    $('heroStatus').textContent = '\u26a0\ufe0f Connection Error';
+    return null;
+  }
+}
+async function fetchHistory(){
+  try {
+    const r = await fetch(_api('/api/history'));
+    if(!r.ok) throw new Error(r.statusText);
+    return await r.json();
+  } catch(e){ return null; }
+}
+async function fetchProcesses(){
+  try {
+    const r = await fetch(_api('/api/processes?sort='+sortBy));
+    return await r.json();
+  } catch(e){ return null; }
+}
+async function fetchLlama(){
+  try {
+    const r = await fetch(_api('/api/llama'));
+    if(!r.ok) return null;
+    return await r.json();
+  } catch(e){ return null; }
+}
+
+// RENDER STATUS
+function renderStatus(d){
+  if(!d) return;
+  statusData = d;
+  const cpu=d.cpu, ram=d.ram, disk=d.disk, net=d.network, dio=d.disk_io, gpus=d.gpu;
+
+  $('statusIndicator').textContent = 'Connected';
+  $('statusDot').className = 'dot online';
+
+  $('header-hostname').textContent = d.hostname || '—';
+
+  updateGauge(d.health_score);
+  const hlabel = d.health_score>=80?'✅ Excellent':d.health_score>=50?'⚠️ Fair':'🔴 Critical';
+  $('heroStatus').textContent = hlabel;
+  $('heroMeta').textContent = `${d.platform||''} • ${d.alerts?.length||0} alert(s)`;
+
+  // CPU
+  const temp = cpu.temps && Object.values(cpu.temps).length ? Object.values(cpu.temps)[0] : 0;
+  $('cpu-temp').innerHTML = fmt(temp,1)+'<span class="unit">°C</span>';
+  $('cpu-usage').innerHTML = cpu.percent+'<span class="unit">%</span>';
+  $('cpu-freq').innerHTML = fmt(cpu.freq.current/1000,2)+'<span class="unit">GHz</span>';
+  $('cpu-cores').innerHTML = cpu.count_logical+'<span class="unit">/'+cpu.count_physical+'</span>';
+  // Load avg + per-core
+  if(cpu.load_avg){
+    document.getElementById('cpu-load-1m').textContent = cpu.load_avg[0].toFixed(2);
+    document.getElementById('cpu-load-5m').textContent = cpu.load_avg[1].toFixed(2);
+    document.getElementById('cpu-load-15m').textContent = cpu.load_avg[2].toFixed(2);
+  }
+  if(cpu.per_core && cpu.per_core.length){
+    const cg = document.getElementById('cpu-core-grid');
+    if(cg) cg.innerHTML = cpu.per_core.map(function(p,i){
+      var cls = p>80?'danger':p>60?'warning':'good';
+      return '<div class="core-item"><span class="core-lbl">C'+i+'</span><div class="usage-bar" style="height:4px;margin:0"><div class="usage-fill '+cls+'" style="width:'+p+'%"></div></div><span class="core-val">'+p+'%</span></div>';
+    }).join('');
+  }
+  const cCls = cpu.percent>80?'danger':cpu.percent>60?'warning':'good';
+  $('cpu-badge').textContent = cpu.percent+'%';
+  $('cpu-badge').style.color = cCls==='good'?'var(--success)':cCls==='warning'?'var(--warning)':'var(--danger)';
+  $('cpu-bar').style.width = cpu.percent+'%';
+  $('cpu-bar').className = 'usage-fill '+cCls;
+
+  // RAM
+  $('ram-pct').innerHTML = ram.percent+'<span class="unit">%</span>';
+  $('ram-used').innerHTML = ram.used_gb+'<span class="unit">GB / '+ram.total_gb+'GB</span>';
+  const rCls = ram.percent>85?'danger':ram.percent>70?'warning':'good';
+  $('ram-badge').textContent = ram.percent+'%';
+  $('ram-badge').style.color = rCls==='good'?'var(--success)':rCls==='warning'?'var(--warning)':'var(--danger)';
+  $('ram-bar').style.width = ram.percent+'%';
+  $('ram-bar').className = 'usage-fill '+rCls;
+
+  // Disk
+  $('disk-pct').innerHTML = disk.percent+'<span class="unit">%</span>';
+  $('disk-free').innerHTML = disk.free_gb+'<span class="unit">GB</span>';
+  const dCls = disk.percent>90?'danger':disk.percent>75?'warning':'good';
+  $('disk-badge').textContent = disk.percent+'%';
+  $('disk-badge').style.color = dCls==='good'?'var(--success)':dCls==='warning'?'var(--warning)':'var(--danger)';
+  $('disk-bar').style.width = disk.percent+'%';
+  $('disk-bar').className = 'usage-fill '+dCls;
+
+  // Network
+  $('net-dl').innerHTML = fmt(net.rx_speed_bps/(1024**2),2)+'<span class="unit">Mbps</span>';
+  $('net-ul').innerHTML = fmt(net.tx_speed_bps/(1024**2),2)+'<span class="unit">Mbps</span>';
+  $('net-badge').textContent = fmt(net.rx_speed_bps/(1024**2),1)+'/'+fmt(net.tx_speed_bps/(1024**2),1)+' Mbps';
+
+  // Disk I/O
+  $('io-read').innerHTML = fmt(dio.read_speed_bs/(1024**2),2)+'<span class="unit">MB/s</span>';
+  $('io-write').innerHTML = fmt(dio.write_speed_bs/(1024**2),2)+'<span class="unit">MB/s</span>';
+
+  // Uptime
+  $('statusUptime').textContent = 'Uptime: '+timeAgo(d.uptime);
+
+  // Alerts
+  renderAlerts(d.alerts || []);
+
+  // Swap
+  if(ram.swap){
+    $('ram-swap-pct').textContent = ram.swap.percent.toFixed(1);
+    $('ram-swap-used').textContent = ram.swap.used_gb.toFixed(1);
+    $('ram-swap-total').textContent = ram.swap.total_gb.toFixed(1);
+    $('ram-swap-sin').textContent = ram.swap.sin_gb.toFixed(2);
+    $('ram-swap-sout').textContent = ram.swap.sout_gb.toFixed(2);
+  }
+
+  // Per-partition disk
+  if(disk.partitions && disk.partitions.length){
+    const pg = document.getElementById('disk-part-grid');
+    if(pg) pg.innerHTML = disk.partitions.map(function(p){
+      var cls = p.percent>85?'danger':p.percent>70?'warning':'good';
+      return '<div class="part-item"><span class="part-mount">'+p.mount+'</span><div class="usage-bar" style="height:4px;margin:0"><div class="usage-fill '+cls+'" style="width:'+p.percent+'%"></div></div><span class="part-pct" style="color:var(--'+cls+')">'+p.percent+'%</span><span class="part-size">'+p.used_gb+'/'+p.total_gb+'GB</span></div>';
+    }).join('');
+  }
+
+  // Per-interface network
+  if(net.interfaces){
+    var ifKeys = Object.keys(net.interfaces).filter(function(k){ return k !== 'lo'; });
+    var ifGrid = document.getElementById('iface-grid');
+    if(ifGrid && ifKeys.length){
+      ifGrid.innerHTML = ifKeys.map(function(k){
+        var ifd = net.interfaces[k];
+        var rx = ifd.rx_speed_bps;
+        var tx = ifd.tx_speed_bps;
+        return '<div class="iface-item"><div class="iface-name">'+k+'</div><div class="iface-stat"><span>Rx</span><span class="val">'+(rx>=1e6?fmt(rx/1e6,2)+' Mbps':fmt(rx/1e3,1)+' Kbps')+'</span></div><div class="iface-stat"><span>Tx</span><span class="val">'+(tx>=1e6?fmt(tx/1e6,2)+' Mbps':fmt(tx/1e3,1)+' Kbps')+'</span></div></div>';
+      }).join('');
+    }
+  }
+
+  // Docker containers
+  renderDocker(d.docker);
+
+  // Thermal & Fans
+  renderThermal(d.thermal, gpus);
+
+  // GPU
+  renderGpu(gpus);
+}
+
+// RENDER THERMAL & FANS
+function renderThermal(thermal, gpus){
+  const body = document.getElementById('thermalBody');
+  const badge = document.getElementById('thermal-badge');
+  if(!thermal || (!thermal.fans || !Object.keys(thermal.fans).length) && (!thermal.temperatures || !Object.keys(thermal.temperatures).length)){
+    if(body) body.innerHTML = '<div style="color:var(--text-3);font-size:.85rem;padding:12px 0">No thermal data available</div>';
+    if(badge) badge.textContent = '—';
+    return;
+  }
+
+  // Count active fans (RPM > 0)
+  var fanCount = 0;
+  var fanHtml = '';
+  if(thermal.fans){
+    Object.keys(thermal.fans).forEach(function(chip){
+      thermal.fans[chip].forEach(function(f, idx){
+        var label = 'Fan ' + (idx+1);
+        var active = f.current > 0;
+        if(active) fanCount++;
+        var barPct = Math.min(100, Math.round(f.current / 2500 * 100));
+        var color = active ? 'var(--success)' : 'var(--text-3)';
+        fanHtml += '<div class="therm-item"><div class="therm-label">' + label + '</div><div class="therm-bar-wrap"><div class="usage-bar" style="height:6px;flex:1"><div class="usage-fill" style="width:'+barPct+'%;background:'+color+';border-radius:3px"></div></div><span class="therm-val" style="color:'+color+'">' + (active ? f.current + ' RPM' : 'off') + '</span></div></div>';
+      });
+    });
+  }
+
+  // GPU fan
+  var hasGpuFan = false;
+  if(gpus && gpus.length){
+    gpus.forEach(function(g, idx){
+      if(g.fan_speed >= 0){
+        hasGpuFan = true;
+        if(g.fan_speed > 0) fanCount++;
+        var active = g.fan_speed > 0;
+        var gpuLabel = g.name.length > 20 ? g.name.substring(0,20)+'…' : g.name;
+        var barPct = Math.min(100, g.fan_speed);
+        var color = active ? 'var(--success)' : 'var(--text-3)';
+        var rpmText = g.fan_rpm >= 0 ? g.fan_rpm + ' RPM' : '';
+        fanHtml += '<div class="therm-item"><div class="therm-label">GPU Fan</div><div class="therm-bar-wrap"><div class="usage-bar" style="height:6px;flex:1"><div class="usage-fill" style="width:'+barPct+'%;background:'+color+';border-radius:3px"></div></div><span class="therm-val" style="color:'+color+'">' + (active ? g.fan_speed+'%' + (rpmText ? ' ('+rpmText+')' : '') : '0% (off)') + '</span></div></div>';
+      }
+    });
+  }
+
+  // Build temperature display (filter obviously disconnected sensors)
+  var tempHtml = '';
+  var tempSensors = [];
+  if(thermal.temperatures){
+    Object.keys(thermal.temperatures).forEach(function(chip){
+      thermal.temperatures[chip].forEach(function(s){
+        var v = s.current;
+        if(v <= 0 || v >= 105 || v === -1) return;
+        tempSensors.push({chip: chip, label: s.label, value: v});
+      });
+    });
+  }
+  // Also add GPU temperature
+  if(gpus && gpus.length){
+    gpus.forEach(function(g, idx){
+      if(g.temperature > 0 && g.temperature < 105){
+        tempSensors.push({chip: g.name.length>20?g.name.substring(0,20)+'…':g.name, label: g.name.length>20?g.name.substring(0,20)+'…':g.name, value: g.temperature});
+      }
+    });
+  }
+  // Sort by value descending
+  tempSensors.sort(function(a,b){ return b.value - a.value; });
+  tempSensors.forEach(function(s){
+    var pct = Math.min(100, Math.round(s.value / 100 * 100));
+    var cls = s.value > 75 ? 'danger' : s.value > 65 ? 'warning' : 'good';
+    tempHtml += '<div class="therm-item"><div class="therm-label">' + s.label + (s.chip !== 'k10temp' && s.chip !== s.label ? ' <span style="font-size:.7rem;color:var(--text-3)">(' + s.chip + ')</span>' : '') + '</div><div class="therm-bar-wrap"><div class="usage-bar" style="height:6px;flex:1"><div class="usage-fill ' + cls + '" style="width:' + pct + '%;border-radius:3px"></div></div><span class="therm-val" style="color:var(--' + cls + ')">' + s.value.toFixed(1) + '°C</span></div></div>';
+  });
+
+  // Badge: active fans / total thermal zones
+  var totalZones = tempSensors.length;
+  if(badge) badge.textContent = fanCount + ' fans · ' + totalZones + ' sensors';
+
+  body.innerHTML = '<div class="therm-grid">' +
+    (fanHtml ? '<div class="therm-section"><div class="therm-section-title">🔧 Fans (' + fanCount + ' active)</div>' + fanHtml + '</div>' : '') +
+    (tempHtml ? '<div class="therm-section" style="margin-top:12px"><div class="therm-section-title">🌡️ Temperatures</div>' + tempHtml + '</div>' : '') +
+    '</div>';
+}
+
+// RENDER GPU
+function renderGpu(gpus){
+  const card = $('gpu-card');
+  const freqCard = $('gpu-freq-card');
+  const grid = $('gpuGrid');
+  if(!gpus || gpus.length===0){ card.style.display='none'; freqCard.style.display='none'; return }
+  card.style.display='block';
+  freqCard.style.display='block';
+  grid.innerHTML = gpus.map(g => {
+    const memPct = g.memory_total_gb>0 ? (g.memory_used_gb/g.memory_total_gb*100).toFixed(0) : 0;
+    const tCls = g.temperature>75?'danger':g.temperature>65?'warning':'good';
+    const uCls = g.utilization_gpu>80?'danger':g.utilization_gpu>60?'warning':'good';
+    const hasThrottle = g.throttle && g.throttle.throttling;
+    const clockPct = g.max_clock > 0 ? (g.core_clock/g.max_clock*100).toFixed(0) : 0;
+    return `<div class="gpu-item">
+      <div class="gpu-name">
+        <span>${g.name} ${hasThrottle?'<span class="throttle-warn">⚠️ THROTTLING</span>':''}</span>
+        <span class="badge" style="background:${tCls==='danger'?'var(--danger-bg)':tCls==='warning'?'var(--warning-bg)':'var(--success-bg)'};color:${tCls==='danger'?'var(--danger)':tCls==='warning'?'var(--warning)':'var(--success)'}">${g.utilization_gpu}% util</span>
+      </div>
+      <div class="gpu-stats">
+        <div class="gpu-stat"><div class="gpu-stat-val" style="color:var(--${tCls==='danger'?'danger':tCls==='warning'?'warning':'success'})">${g.temperature}°C</div><div class="gpu-stat-lbl">Temp</div></div>
+        <div class="gpu-stat"><div class="gpu-stat-val">${g.fan_speed>=0?g.fan_speed+'%':'—'}</div><div class="gpu-stat-lbl">Fan</div></div>
+        <div class="gpu-stat"><div class="gpu-stat-val" style="color:var(--${uCls==='danger'?'danger':uCls==='warning'?'warning':'success'})">${g.utilization_gpu}%</div><div class="gpu-stat-lbl">Core Util</div></div>
+        <div class="gpu-stat"><div class="gpu-stat-val">${g.core_clock}${g.max_clock?' / '+g.max_clock:''}</div><div class="gpu-stat-lbl">Core Clock (MHz) — ${clockPct}%</div></div>
+        <div class="gpu-stat"><div class="gpu-stat-val">${g.power_w > 0 ? g.power_w+'W' : '—'}</div><div class="gpu-stat-lbl">Power</div></div>
+        <div class="gpu-stat"><div class="gpu-stat-val">${g.memory_used_gb} / ${g.memory_total_gb}</div><div class="gpu-stat-lbl">VRAM (GB) — ${memPct}%</div></div>
+      </div>
+      <div class="usage-bar" style="margin-top:8px"><div class="usage-fill ${uCls}" style="width:${g.utilization_gpu}%"></div></div>
+    </div>`;
+  }).join('');
+  $('gpu-badge').textContent = gpus.length+' GPU(s)';
+  // Update frequency badge
+  if (gpus[0]) {
+    $('gpu-freq-badge').textContent = gpus[0].core_clock+' / '+ (gpus[0].max_clock||'?')+' MHz';
+  }
+  // Make GPU stat tiles clickable
+  setupGpuMetricClicks();
+}
+
+// RENDER LLAMA
+function renderLlama(d){
+  llamaData = d;
+  const body = $('llamaBody');
+  const badge = $('llama-badge');
+  if(!d || !d.alive){
+    badge.textContent = 'offline';
+    badge.style.color = 'var(--danger)';
+    body.innerHTML = '<div class="llama-offline">⬤ llama-server not reachable on :8080</div>';
+    return;
+  }
+  badge.textContent = 'online';
+  badge.style.color = 'var(--success)';
+  const ctxPct = d.context_max > 0 ? (d.context_used/d.context_max*100).toFixed(1) : 0;
+  body.innerHTML = `
+    <div class="llama-online"><span class="dot online"></span> ${d.model||'unknown model'}</div>
+    <div class="llama-grid">
+      <div class="llama-stat"><div class="val">${d.prompt_tps !== null ? d.prompt_tps+' tok/s' : '—'}</div><div class="lbl">Prompt TPS</div></div>
+      <div class="llama-stat"><div class="val">${d.gen_tps !== null ? d.gen_tps+' tok/s' : '—'}</div><div class="lbl">Gen TPS</div></div>
+      <div class="llama-stat"><div class="val">${d.total_tokens || 0}</div><div class="lbl">Tokens (last)</div></div>
+      <div class="llama-stat"><div class="val">${d.context_used.toLocaleString()} / ${d.context_max.toLocaleString()}</div><div class="lbl">Context — ${ctxPct}%</div></div>
+    </div>
+  `;
+}
+
+// RENDER DOCKER
+function renderDocker(containers){
+  const body = document.getElementById('dockerBody');
+  const badge = document.getElementById('docker-badge');
+  if(!containers || containers.length===0){
+    if(body) body.innerHTML = '<div style="color:var(--text-3);font-size:.85rem;padding:12px 0">No containers running</div>';
+    if(badge) badge.textContent = '0';
+    return;
+  }
+  if(badge) badge.textContent = containers.length;
+  body.innerHTML = '<div class="table-wrap" style="max-height:300px;overflow-y:auto"><table><thead><tr><th>Name</th><th>CPU%</th><th>Mem%</th><th>Mem Usage</th><th>PIDs</th></tr></thead><tbody>' +
+    containers.map(function(c){
+      return '<tr><td class="proc-name" title="'+c.name+'">'+c.name+'</td><td>'+c.cpu_percent+'</td><td>'+c.mem_percent+'</td><td>'+c.mem_usage+'</td><td>'+c.pids+'</td></tr>';
+    }).join('') +
+    '</tbody></table></div>';
+}
+
+// RENDER PINNED PROCESSES
+const PINNED_NAMES = ['llama-server','python','hermes','frigate','tailscaled','nginx','docker'];
+function renderPinned(procs){
+  const body = document.getElementById('pinnedBody');
+  if(!body || !procs) return;
+  var pinned = procs.filter(function(p){
+    return PINNED_NAMES.some(function(n){ return p.name.toLowerCase().indexOf(n) !== -1; });
+  });
+  if(!pinned.length){
+    body.innerHTML = '<div style="color:var(--text-3);font-size:.85rem;padding:12px 0">No tracked processes found</div>';
+    return;
+  }
+  body.innerHTML = '<div class="table-wrap" style="max-height:320px;overflow-y:auto"><table><thead><tr><th>Name</th><th>PID</th><th>CPU%</th><th>RAM%</th><th>RAM MB</th><th>Status</th></tr></thead><tbody>' +
+    pinned.map(function(p){
+      return '<tr><td class="proc-name" title="'+p.name+'">'+p.name+'</td><td>'+p.pid+'</td><td>'+p.cpu_percent+'</td><td>'+p.memory_percent+'</td><td>'+p.memory_mb+'</td><td><span class="badge" style="background:var(--surface-3)">'+p.status+'</span></td></tr>';
+    }).join('') +
+    '</tbody></table></div>';
+}
+function renderAlerts(alerts){
+  const list = $('alertList');
+  $('alert-count').textContent = alerts.length;
+  if(!alerts || alerts.length===0){
+    list.innerHTML = '<div style="color:var(--text-3);font-size:.85rem;padding:8px 0">✓ No active alerts</div>';
+    return;
+  }
+  list.innerHTML = alerts.map(a =>
+    `<div class="alert-item ${a.severity}">
+      <div><div class="alert-severity">${a.severity}</div><div class="alert-source">${a.source}</div></div>
+      <div class="alert-msg">${a.message}</div>
+    </div>`
+  ).join('');
+}
+
+// RENDER PROCESSES
+function renderProcesses(data){
+  if(!data) return;
+  $('procBody').innerHTML = data.processes.map(p =>
+    `<tr>
+      <td>${p.pid}</td>
+      <td class="proc-name" title="${p.name}">${p.name}</td>
+      <td>${p.cpu_percent}</td>
+      <td>${p.memory_percent}</td>
+      <td>${p.memory_mb}</td>
+      <td><span class="badge" style="background:var(--surface-3)">${p.status}</span></td>
+    </tr>`
+  ).join('');
+  renderPinned(data.processes);
+}
+
+// CHART HELPERS
+const CHART_COLORS = {
+  red:   {backgroundColor:'rgba(239,68,68,.15)',borderColor:'rgba(239,68,68,.8)'},
+  blue:  {backgroundColor:'rgba(59,130,246,.15)',borderColor:'rgba(59,130,246,.8)'},
+  green: {backgroundColor:'rgba(16,185,129,.15)',borderColor:'rgba(16,185,129,.8)'},
+  orange:{backgroundColor:'rgba(245,158,11,.15)',borderColor:'rgba(245,158,11,.8)'},
+  cyan:  {backgroundColor:'rgba(6,182,212,.15)',borderColor:'rgba(6,182,212,.8)'},
+  purple:{backgroundColor:'rgba(139,92,246,.15)',borderColor:'rgba(139,92,246,.8)'},
+  pink:  {backgroundColor:'rgba(236,72,153,.15)',borderColor:'rgba(236,72,153,.8)'},
+};
+
+function newChart(id,type,labels,datasets,opts={}){
+  const ctx = $(id).getContext('2d');
+  return new Chart(ctx, {
+    type,
+    data:{labels,datasets},
+    options:{
+      responsive:true,
+      maintainAspectRatio:false,
+      animation:{duration:300},
+      interaction:{mode:'nearest',intersect:false,axis:'x'},
+      plugins:{
+        legend:{display:false},
+        tooltip:{
+          backgroundColor:'#1b2333',
+          titleColor:'#e8edf5',
+          bodyColor:'#94a3b8',
+          borderColor:'#2a3548',
+          borderWidth:1,
+          cornerRadius:8,
+          padding:10,
+        }
+      },
+      scales:{
+        x:{
+          display:true,
+          ticks:{color:'#64748b',maxTicksLimit:8,font:{size:10}},
+          grid:{color:'#2a3548',drawBorder:false}
+        },
+        y:{
+          display:true,
+          beginAtZero:true,
+          ticks:{color:'#64748b',font:{size:10}},
+          grid:{color:'#2a3548',drawBorder:false},
+          title:{display:true,text:'',color:'#64748b',font:{size:10}}
+        }
+      },
+      ...opts
+    }
+  });
+}
+
+function timeLabels(arr){
+  if(!arr || arr.length===0) return [];
+  return arr.map(p => {
+    const d = new Date(p.t*1000);
+    return d.getHours().toString().padStart(2,'0')+':'+d.getMinutes().toString().padStart(2,'0')+':'+d.getSeconds().toString().padStart(2,'0');
+  });
+}
+
+// INIT / UPDATE CHARTS
+function initCharts(){
+  charts.cpuTemp = newChart('chartCpuTemp','line',[],[],{scales:{y:{title:{display:true,text:'Temp (°C)'},min:0,max:100}}});
+  charts.cpuTemp.data.datasets = [{label:'CPU Temp (°C)', data:[], ...CHART_COLORS.red, fill:true, tension:.3, pointRadius:0, borderWidth:2}];
+
+  charts.cpuPct = newChart('chartCpuPct','line',[],[
+    {label:'CPU %', data:[], ...CHART_COLORS.blue, fill:true, tension:.3, pointRadius:0, borderWidth:2}
+  ],{scales:{y:{title:{display:true,text:'Usage (%)'},min:0,max:100}}});
+
+  charts.ram = newChart('chartRam','line',[],[
+    {label:'RAM %', data:[], ...CHART_COLORS.green, fill:true, tension:.3, pointRadius:0, borderWidth:2}
+  ],{scales:{y:{title:{display:true,text:'Usage (%)'},min:0,max:100}}});
+
+  charts.disk = newChart('chartDisk','line',[],[
+    {label:'Disk %', data:[], ...CHART_COLORS.orange, fill:true, tension:.3, pointRadius:0, borderWidth:2}
+  ],{scales:{y:{title:{display:true,text:'Usage (%)'},min:0,max:100}}});
+
+  charts.net = newChart('chartNet','line',[],[
+    {label:'Download Mbps', data:[], ...CHART_COLORS.cyan, fill:true, tension:.3, pointRadius:0, borderWidth:2,yAxisID:'y'},
+    {label:'Upload Mbps', data:[], ...CHART_COLORS.orange, fill:true, tension:.3, pointRadius:0, borderWidth:2,yAxisID:'y'}
+  ],{scales:{y:{title:{display:true,text:'Mbps'}}}});
+
+  charts.io = newChart('chartIo','line',[],[
+    {label:'Read MB/s', data:[], ...CHART_COLORS.green, fill:true, tension:.3, pointRadius:0, borderWidth:2,yAxisID:'y'},
+    {label:'Write MB/s', data:[], ...CHART_COLORS.red, fill:true, tension:.3, pointRadius:0, borderWidth:2,yAxisID:'y'}
+  ],{scales:{y:{title:{display:true,text:'MB/s'}}}});
+
+  charts.gpuTemp = newChart('chartGpuTemp','line',[],[
+    {label:'GPU Temp (°C)', data:[], ...CHART_COLORS.purple, fill:true, tension:.3, pointRadius:0, borderWidth:2}
+  ],{scales:{y:{title:{display:true,text:'Temp (°C)'},min:20,max:100}}});
+
+  charts.gpuFreq = newChart('chartGpuFreq','line',[],[
+    {label:'GPU Core Clock (MHz)', data:[], ...CHART_COLORS.pink, fill:true, tension:.3, pointRadius:0, borderWidth:2}
+  ],{scales:{y:{title:{display:true,text:'Frequency (MHz)'},min:0}}});
+}
+
+function updateCharts(hist){
+  if(!hist) return;
+  historyData = hist;
+
+  // Get time range (minutes) for each chart
+  const cpuMin = getTimeRange('cpu');
+  const cpuPctMin = getTimeRange('cpuPct');
+  const ramMin = getTimeRange('ram');
+  const diskMin = getTimeRange('disk');
+  const netMin = getTimeRange('net');
+  const ioMin = getTimeRange('io');
+
+  // CPU chart - shows the metric selected by the user
+  const cpuT = filterByTime(hist.cpu_temp || [], cpuMin);
+  const cpuP = filterByTime(hist.cpu_percent || [], cpuPctMin);
+  const freq = filterByTime(hist.cpu_freq || [], cpuMin);
+  const ds = charts.cpuTemp.data.datasets[0];
+
+  if (cpuChartMetric === 'cpu_temp') {
+    ds.label = 'CPU Temp (°C)';
+    ds.data = cpuT.map(p => p.v);
+    ds.borderColor = CHART_COLORS.red.borderColor;
+    ds.backgroundColor = CHART_COLORS.red.backgroundColor;
+    charts.cpuTemp.options.scales.y.title.text = 'Temp (°C)';
+    charts.cpuTemp.options.scales.y.max = 100;
+    charts.cpuTemp.options.scales.y.min = 0;
+  } else if (cpuChartMetric === 'cpu_percent') {
+    ds.label = 'CPU Usage (%)';
+    ds.data = cpuP.map(p => p.v);
+    ds.borderColor = CHART_COLORS.blue.borderColor;
+    ds.backgroundColor = CHART_COLORS.blue.backgroundColor;
+    charts.cpuTemp.options.scales.y.title.text = 'Usage (%)';
+    charts.cpuTemp.options.scales.y.max = 100;
+    charts.cpuTemp.options.scales.y.min = 0;
+  } else if (cpuChartMetric === 'cpu_freq') {
+    ds.label = 'CPU Freq (GHz)';
+    ds.data = freq.map(p => p.v / 1000);
+    ds.borderColor = CHART_COLORS.orange.borderColor;
+    ds.backgroundColor = CHART_COLORS.orange.backgroundColor;
+    charts.cpuTemp.options.scales.y.title.text = 'Frequency (GHz)';
+    charts.cpuTemp.options.scales.y.max = null;
+    charts.cpuTemp.options.scales.y.min = 0;
+  }
+  charts.cpuTemp.data.labels = timeLabels(cpuChartMetric === 'cpu_temp' ? cpuT : cpuChartMetric === 'cpu_percent' ? cpuP : freq);
+  charts.cpuTemp.update('none');
+
+  // CPU percent history (separate card, always shows CPU %)
+  charts.cpuPct.data.labels = timeLabels(cpuP);
+  charts.cpuPct.data.datasets[0].data = cpuP.map(p => p.v);
+  charts.cpuPct.update('none');
+
+  // RAM
+  const ram = filterByTime(hist.ram || [], ramMin);
+  charts.ram.data.labels = timeLabels(ram);
+  charts.ram.data.datasets[0].data = ram.map(p => p.percent);
+  charts.ram.update('none');
+
+  // Disk
+  const disk = filterByTime(hist.disk || [], diskMin);
+  charts.disk.data.labels = timeLabels(disk);
+  charts.disk.data.datasets[0].data = disk.map(p => p.percent);
+  charts.disk.update('none');
+
+  // Network
+  const net = filterByTime(hist.network || [], netMin);
+  charts.net.data.labels = timeLabels(net);
+  charts.net.data.datasets[0].data = net.map(p => p.rx_speed_mbps);
+  charts.net.data.datasets[1].data = net.map(p => p.tx_speed_mbps);
+  charts.net.update('none');
+
+  // Disk I/O
+  const dio = filterByTime(hist.disk_io || [], ioMin);
+  charts.io.data.labels = timeLabels(dio);
+  charts.io.data.datasets[0].data = dio.map(p => p.read_speed_mbps);
+  charts.io.data.datasets[1].data = dio.map(p => p.write_speed_mbps);
+  charts.io.update('none');
+
+  // GPU time ranges
+  const gpuMin = getTimeRange('gpu');
+  const gpuFreqMin = getTimeRange('gpu-freq');
+
+  // GPU chart - shows the metric selected by the user
+  const gpuHist = filterByTime(hist.gpu || [], gpuMin);
+  if (gpuHist.length > 0) {
+    const ds = charts.gpuTemp.data.datasets[0];
+    if (gpuChartMetric === 'gpu_temp') {
+      ds.label = 'GPU Temp (°C)';
+      ds.data = gpuHist.map(p => p.gpus && p.gpus[0] ? p.gpus[0].temperature : null);
+      ds.borderColor = CHART_COLORS.purple.borderColor;
+      ds.backgroundColor = CHART_COLORS.purple.backgroundColor;
+      charts.gpuTemp.options.scales.y.title.text = 'Temp (°C)';
+      charts.gpuTemp.options.scales.y.min = 20;
+      charts.gpuTemp.options.scales.y.max = 100;
+    } else if (gpuChartMetric === 'gpu_util') {
+      ds.label = 'GPU Core Util (%)';
+      ds.data = gpuHist.map(p => p.gpus && p.gpus[0] ? p.gpus[0].utilization_gpu : null);
+      ds.borderColor = CHART_COLORS.blue.borderColor;
+      ds.backgroundColor = CHART_COLORS.blue.backgroundColor;
+      charts.gpuTemp.options.scales.y.title.text = 'Utilization (%)';
+      charts.gpuTemp.options.scales.y.min = 0;
+      charts.gpuTemp.options.scales.y.max = 100;
+    } else if (gpuChartMetric === 'gpu_power') {
+      ds.label = 'GPU Power (W)';
+      ds.data = gpuHist.map(p => p.gpus && p.gpus[0] ? parseFloat(p.gpus[0].power_w) : null);
+      ds.borderColor = CHART_COLORS.orange.borderColor;
+      ds.backgroundColor = CHART_COLORS.orange.backgroundColor;
+      charts.gpuTemp.options.scales.y.title.text = 'Power (W)';
+      charts.gpuTemp.options.scales.y.min = 0;
+      charts.gpuTemp.options.scales.y.max = null;
+    } else if (gpuChartMetric === 'gpu_vram') {
+      ds.label = 'GPU VRAM (GB)';
+      ds.data = gpuHist.map(p => p.gpus && p.gpus[0] && p.gpus[0].memory_total_gb > 0
+        ? (p.gpus[0].memory_used_gb / p.gpus[0].memory_total_gb * 100).toFixed(1)
+        : null);
+      ds.borderColor = CHART_COLORS.green.borderColor;
+      ds.backgroundColor = CHART_COLORS.green.backgroundColor;
+      charts.gpuTemp.options.scales.y.title.text = 'VRAM (%)';
+      charts.gpuTemp.options.scales.y.min = 0;
+      charts.gpuTemp.options.scales.y.max = 100;
+    }
+    charts.gpuTemp.data.labels = timeLabels(gpuHist);
+    charts.gpuTemp.update('none');
+  }
+
+  // GPU frequency
+  const gpuFreqHist = filterByTime(hist.gpu_freq || [], gpuFreqMin);
+  if (gpuFreqHist.length > 0) {
+    charts.gpuFreq.data.labels = timeLabels(gpuFreqHist);
+    charts.gpuFreq.data.datasets[0].data = gpuFreqHist.map(p => p.v);
+    charts.gpuFreq.update('none');
+  }
+
+  $('statusSamples').textContent = 'Samples: '+(hist.total_records||0);
+}
+
+// FETCH LOOP
+let fetching = false;
+async function fetchAll(){
+  if(fetching) return;
+  fetching = true;
+  try {
+    const [status, hist, procs, llama] = await Promise.all([fetchStatus(), fetchHistory(), fetchProcesses(), fetchLlama()]);
+    if(status) renderStatus(status);
+    if(hist) updateCharts(hist);
+    if(procs) renderProcesses(procs);
+    if(llama) renderLlama(llama);
+  } catch(e){ console.error(e); }
+  finally { fetching = false; }
+}
+
+// EXPORT
+async function exportData(){
+  try {
+    const r = await fetch(_api('/api/export'));
+    const data = await r.json();
+    const blob = new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'system-monitor-export-'+new Date().toISOString().slice(0,19)+'.json';
+    a.click();
+    toast('📥 Export downloaded');
+  } catch(e){ toast('Export failed'); }
+}
+
+// SORT PROCESSES
+function sortProcs(s){
+  sortBy=s;
+  fetchProcesses().then(renderProcesses);
+  toast('Sorted by '+s);
+}
+
+// COUNTDOWN
+setInterval(() => {
+  countdown--;
+  if(countdown<=0){
+    countdown = Math.ceil(REFRESH_MS/1000);
+    fetchAll();
+  }
+  $('countdown').textContent = countdown;
+}, 1000);
+
+// METRIC TILE CLICKS
+function setCpuMetric(metric, tileId) {
+  if (tileId) {
+    document.querySelectorAll('#cpu-card .metric').forEach(t => t.classList.remove('active'));
+    $(tileId).classList.add('active');
+  }
+  cpuChartMetric = metric;
+  updateChartFromMetric();
+}
+
+function setupMetricClicks(){
+  $('cpu-temp-metric').addEventListener('click', () => setCpuMetric('cpu_temp', 'cpu-temp-metric'));
+  $('cpu-usage-metric').addEventListener('click', () => setCpuMetric('cpu_percent', 'cpu-usage-metric'));
+  $('cpu-freq-metric').addEventListener('click', () => setCpuMetric('cpu_freq', 'cpu-freq-metric'));
+  $('cpu-cores-metric').addEventListener('click', () => {
+    toast('📊 Logical / Physical cores — not chartable');
+  });
+  $('ram-pct-metric').addEventListener('click', () => { toast('📊 RAM % history'); updateChartFromMetric(); });
+  $('ram-used-metric').addEventListener('click', () => { toast('📊 RAM usage history'); updateChartFromMetric(); });
+  $('disk-pct-metric').addEventListener('click', () => { toast('📊 Disk usage history'); updateChartFromMetric(); });
+  $('disk-free-metric').addEventListener('click', () => { toast('📊 Disk free space'); updateChartFromMetric(); });
+  $('net-dl-metric').addEventListener('click', () => { toast('📊 Network download history'); updateChartFromMetric(); });
+  $('net-ul-metric').addEventListener('click', () => { toast('📊 Network upload history'); updateChartFromMetric(); });
+  $('io-read-metric').addEventListener('click', () => { toast('📊 Disk read history'); updateChartFromMetric(); });
+  $('io-write-metric').addEventListener('click', () => { toast('📊 Disk write history'); updateChartFromMetric(); });
+}
+
+// GPU METRIC SWITCHING
+const GPU_METRICS = {
+  'Temp': 'gpu_temp',
+  'Core Util': 'gpu_util',
+  'Power': 'gpu_power',
+  'VRAM': 'gpu_vram',
+};
+
+function setGpuMetric(metric, el) {
+  gpuChartMetric = metric;
+  // Highlight active tile
+  document.querySelectorAll('.gpu-stat').forEach(t => t.style.borderColor = '');
+  if (el) el.style.borderColor = 'var(--primary)';
+  updateChartFromMetric();
+  toast('📊 GPU ' + metric.replace('gpu_', '').replace('_', ' ').toUpperCase());
+}
+
+function setupGpuMetricClicks() {
+  document.querySelectorAll('.gpu-stat').forEach(el => {
+    const lbl = el.querySelector('.gpu-stat-lbl');
+    if (!lbl) return;
+    const txt = lbl.textContent.trim();
+    const metric = GPU_METRICS[txt];
+    if (metric) {
+      el.style.cursor = 'pointer';
+      el.addEventListener('click', function() {
+        setGpuMetric(metric, this);
+      });
+    } else {
+      // Non-chartable tiles: show toast
+      el.addEventListener('click', function() {
+        const name = lbl.textContent.trim();
+        toast('📊 ' + name + ' — this metric has its own dedicated chart');
+      });
+    }
+  });
+}
+
+function updateChartFromMetric(){
+  fetchHistory().then(hist => {
+    if (!hist) return;
+    updateCharts(hist);
+  });
+}
+
+// BOOT
+initCharts();
+fetchAll();
+// Setup time buttons
+setupTimeButtons();
+// Setup metric tile clicks
+setTimeout(setupMetricClicks, 500);
+
+</script>
+</body>
+</html>
