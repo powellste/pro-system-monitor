@@ -12,6 +12,7 @@ import threading
 import json
 import os
 import signal
+import subprocess
 import urllib.request
 from collections import deque
 
@@ -109,7 +110,12 @@ H = {
     'network': deque(maxlen=CONFIG['history_max']),
     'gpu': deque(maxlen=CONFIG['history_max']),
     'gpu_freq': deque(maxlen=CONFIG['history_max']),
+    'gpu_vram': deque(maxlen=CONFIG['history_max']),
+    'gpu_power': deque(maxlen=CONFIG['history_max']),
     'disk_io': deque(maxlen=CONFIG['history_max']),
+    'swap': deque(maxlen=CONFIG['history_max']),
+    'net_errors': deque(maxlen=CONFIG['history_max']),
+    'process_snapshot': deque(maxlen=CONFIG['history_max']),
 }
 
 # Try loading persisted history from disk
@@ -165,10 +171,16 @@ _prev_net_perif = {}
 # llama-server monitoring cache
 # ---------------------------------------------------------------------------
 _llama_cache = {'alive': False, 'model': None, 'context_used': 0, 'context_max': 0,
-                'prompt_tps': None, 'gen_tps': None, 'total_tokens': 0}
+                'prompt_tps': None, 'gen_tps': None,
+                'total_prompt_tokens': 0, 'total_predicted_tokens': 0, 'total_tokens': 0,
+                'requests_processing': 0, 'requests_deferred': 0,
+                'n_decode_total': 0, 'generation_time_seconds': 0}
 _llama_cache_time = 0
 _llama_tps_time = 0
-_llama_tps_data = {'prompt_tps': None, 'gen_tps': None, 'total_tokens': 0}
+_llama_tps_data = {'prompt_tps': None, 'gen_tps': None,
+                   'total_prompt_tokens': 0, 'total_predicted_tokens': 0, 'total_tokens': 0,
+                   'requests_processing': 0, 'requests_deferred': 0,
+                   'n_decode_total': 0, 'generation_time_seconds': 0}
 
 # ---------------------------------------------------------------------------
 # Alert rules
@@ -341,6 +353,15 @@ def _collect_gpu():
                     max_clock = nvmlDeviceGetMaxClockInfo(handle, 1)
                 except Exception:
                     max_clock = 0
+                # Memory clock
+                try:
+                    mem_clock = nvmlDeviceGetClockInfo(handle, 0)  # NVML_CLOCK_MEM
+                except Exception:
+                    mem_clock = 0
+                try:
+                    max_mem_clock = nvmlDeviceGetMaxClockInfo(handle, 0)
+                except Exception:
+                    max_mem_clock = 0
                 # Throttling detection
                 throttle = {'throttling': False, 'reasons': []}
                 try:
@@ -367,6 +388,8 @@ def _collect_gpu():
                     'fan_max': fan_max,
                     'core_clock': core_clock,
                     'max_clock': max_clock,
+                    'mem_clock': mem_clock,
+                    'max_mem_clock': max_mem_clock,
                     'power_w': round(power_w, 1),
                     'slowdown_temp': slowdown_temp,
                     'shutdown_temp': shutdown_temp,
@@ -640,21 +663,32 @@ def _query_llama():
         except Exception:
             pass
 
-        # TPS measurement (every 60s — 10 token completion for real speed)
-        if now - _llama_tps_time > 60:
-            body = json.dumps({"prompt": "hello world", "n_predict": 10, "temperature": 0}).encode()
-            req = urllib.request.Request('http://localhost:8080/completion',
-                                         data=body,
-                                         headers={'Content-Type': 'application/json'})
-            r = urllib.request.urlopen(req, timeout=30)
-            comp_data = json.loads(r.read())
-            timings = comp_data.get('timings', {})
-            _llama_tps_data = {
-                'prompt_tps': round(timings.get('prompt_per_second', 0), 1),
-                'gen_tps': round(timings.get('predicted_per_second', 0), 1) if timings.get('predicted_per_second', 0) < 1000 else None,
-                'total_tokens': (comp_data.get('tokens_evaluated', 0) +
-                                 comp_data.get('tokens_predicted', 0)),
-            }
+        # Prometheus metrics (passive — no synthetic completions)
+        if now - _llama_tps_time > 10:
+            try:
+                r = urllib.request.urlopen('http://localhost:8080/metrics', timeout=3)
+                metrics_text = r.read().decode()
+                metrics = {}
+                for line in metrics_text.splitlines():
+                    if line.startswith('#') or not line.strip():
+                        continue
+                    parts = line.split(None, 1)
+                    if len(parts) == 2:
+                        metrics[parts[0]] = float(parts[1])
+                _llama_tps_data = {
+                    'prompt_tps': round(metrics.get('llamacpp:prompt_tokens_seconds', 0), 1),
+                    'gen_tps': round(metrics.get('llamacpp:predicted_tokens_seconds', 0), 1),
+                    'total_prompt_tokens': int(metrics.get('llamacpp:prompt_tokens_total', 0)),
+                    'total_predicted_tokens': int(metrics.get('llamacpp:tokens_predicted_total', 0)),
+                    'requests_processing': int(metrics.get('llamacpp:requests_processing', 0)),
+                    'requests_deferred': int(metrics.get('llamacpp:requests_deferred', 0)),
+                    'n_decode_total': int(metrics.get('llamacpp:n_decode_total', 0)),
+                    'generation_time_seconds': round(metrics.get('llamacpp:tokens_predicted_seconds_total', 0), 1),
+                    'total_tokens': int(metrics.get('llamacpp:prompt_tokens_total', 0) +
+                                         metrics.get('llamacpp:tokens_predicted_total', 0)),
+                }
+            except Exception:
+                pass  # keep last known values
             _llama_tps_time = now
         result.update(_llama_tps_data)
         _llama_cache = dict(result)
@@ -663,10 +697,226 @@ def _query_llama():
         result['alive'] = False
     return result
 
+# ---------------------------------------------------------------------------
+# Trading engine monitoring
+# ---------------------------------------------------------------------------
+_trading_cache = {'alive': False, 'model': None, 'uptime': 0, 'open_trades': 0, 'strategies': [], 'errors': []}
+_trading_cache_time = 0
+
+def _collect_trading_engine():
+    """Query Hermes trading engine on :5100."""
+    global _trading_cache, _trading_cache_time
+    now = time.time()
+    if now - _trading_cache_time < 10:
+        return _trading_cache
+    result = {'alive': False, 'model': 'paper', 'uptime': 0, 'open_trades': 0,
+              'strategies': [], 'errors': [], 'pairs': [], 'nav': 0,
+              'balance': 0, 'daily_pnl': 0, 'drawdown': 0, 'equity': 0,
+              'data_quality': 0, 'degraded_pairs': 0}
+    try:
+        r = urllib.request.urlopen('http://localhost:5100/api/health', timeout=3)
+        if r.status == 200:
+            result['alive'] = True
+            health = json.loads(r.read())
+            result['uptime'] = health.get('uptime', 0)
+            result['model'] = health.get('mode', 'paper')
+            result['pairs'] = health.get('pairs', [])
+            dq = health.get('data_quality', {})
+            result['data_quality'] = dq.get('overall_score', 0)
+            result['degraded_pairs'] = dq.get('degraded_pairs', 0)
+        # Engine status
+        try:
+            r = urllib.request.urlopen('http://localhost:5100/api/status', timeout=3)
+            eng_status = json.loads(r.read())
+            result['balance'] = eng_status.get('balance', 0)
+            result['equity'] = eng_status.get('equity', 0)
+            result['daily_pnl'] = eng_status.get('daily_pnl', 0)
+            result['drawdown'] = eng_status.get('drawdown_pct', 0)
+        except Exception:
+            pass
+        # Open trades
+        try:
+            r = urllib.request.urlopen('http://localhost:5100/api/trades/open', timeout=3)
+            trades = json.loads(r.read())
+            if isinstance(trades, dict) and 'trades' in trades:
+                result['open_trades'] = len(trades['trades'])
+            elif isinstance(trades, list):
+                result['open_trades'] = len(trades)
+            else:
+                result['open_trades'] = 0
+        except Exception:
+            pass
+        # Strategies
+        try:
+            r = urllib.request.urlopen('http://localhost:5100/api/strategies', timeout=3)
+            strats = json.loads(r.read())
+            result['strategies'] = strats if isinstance(strats, list) else []
+        except Exception:
+            pass
+        # Pairs & NAV
+        try:
+            r = urllib.request.urlopen('http://localhost:5100/api/playbook/orchestrator/decisions', timeout=3)
+            decisions = json.loads(r.read())
+            if isinstance(decisions, dict) and 'pairs' in decisions:
+                result['pairs'] = decisions['pairs']
+            result['nav'] = decisions.get('nav', 0) if isinstance(decisions, dict) else 0
+        except Exception:
+            pass
+    except Exception:
+        result['alive'] = False
+    _trading_cache = result
+    _trading_cache_time = now
+    return result
 
 # ---------------------------------------------------------------------------
-# Background collector thread
+# Systemd service health
 # ---------------------------------------------------------------------------
+SERVICES_TO_MONITOR = ['llama-server@gemma-4-E4B-it-UD-Q4_K_XL', 'hermes-engine',
+                       'hermes-gateway', 'hermes-dashboard', 'hermes-webui',
+                       'hardware-monitor', 'frigate']
+_systemd_cache = []
+_systemd_cache_time = 0
+
+def _collect_systemd():
+    """Query systemd for key service statuses."""
+    global _systemd_cache, _systemd_cache_time
+    now = time.time()
+    if now - _systemd_cache_time < 15:
+        return _systemd_cache
+    services = []
+    for name in SERVICES_TO_MONITOR:
+        try:
+            r = subprocess.run(['systemctl', '--user', 'is-active', name],
+                               capture_output=True, text=True, timeout=3)
+            is_active = r.stdout.strip() == 'active'
+            # Get load state
+            r2 = subprocess.run(['systemctl', '--user', 'is-enabled', name],
+                                capture_output=True, text=True, timeout=2)
+            enabled = r2.stdout.strip() not in ('disabled', 'static')
+            services.append({'name': name, 'active': is_active, 'enabled': enabled})
+        except Exception:
+            # Try root services (frigate)
+            try:
+                r = subprocess.run(['systemctl', 'is-active', name],
+                                   capture_output=True, text=True, timeout=3)
+                is_active = r.stdout.strip() == 'active'
+                services.append({'name': name, 'active': is_active, 'enabled': True})
+            except Exception:
+                services.append({'name': name, 'active': False, 'enabled': False})
+    _systemd_cache = services
+    _systemd_cache_time = now
+    return services
+
+# ---------------------------------------------------------------------------
+# Frigate monitoring
+# ---------------------------------------------------------------------------
+_frigate_cache = None
+_frigate_cache_time = 0
+
+def _collect_frigate():
+    """Query Frigate NVR for camera status and detection stats."""
+    global _frigate_cache, _frigate_cache_time
+    now = time.time()
+    if now - _frigate_cache_time < 30:
+        return _frigate_cache
+    result = {'alive': False, 'cameras': [], 'detection_count': 0}
+    # Try multiple ports / protocols
+    for url_base in ['http://localhost:5000', 'https://localhost:8971']:
+        try:
+            r = urllib.request.urlopen(url_base + '/api/version', timeout=3)
+            result['alive'] = (r.status == 200)
+            if not result['alive']:
+                continue
+            r2 = urllib.request.urlopen(url_base + '/api/stats', timeout=3)
+            stats = json.loads(r2.read())
+            if isinstance(stats, dict):
+                cameras = []
+                for name, data in stats.items():
+                    if name.startswith('camera_') or (isinstance(data, dict) and 'camera_fps' in data):
+                        cam_name = name.replace('camera_', '')
+                        cameras.append({
+                            'name': cam_name,
+                            'fps': data.get('camera_fps', 0),
+                            'detection_fps': data.get('detection_fps', 0),
+                            'audio_rms': data.get('audio_rms', 0),
+                            'audio_db': data.get('audio_db', 0),
+                        })
+                        result['detection_count'] += data.get('detection_fps', 0) > 0 and 1 or 0
+                result['cameras'] = cameras
+                break  # success on this URL
+        except Exception:
+            continue  # try next URL
+    _frigate_cache = result
+    _frigate_cache_time = now
+    return result
+
+# ---------------------------------------------------------------------------
+# Alert notification via Hermes Gateway
+# ---------------------------------------------------------------------------
+_last_alert_notification = {}  # {alert_message_key: last_sent_time}
+
+def _send_alert_notification(alerts):
+    """Send critical alerts via Hermes gateway Telegram webhook."""
+    now = time.time()
+    for alert in alerts:
+        if alert.get('severity') != 'critical':
+            continue
+        key = f"{alert['source']}:{alert['message']}"
+        if key in _last_alert_notification and now - _last_alert_notification[key] < 900:
+            continue  # don't spam — once per 15min
+        try:
+            msg = f"🚨 *{alert['source']} CRITICAL*: {alert['message']}"
+            import urllib.parse
+            payload = json.dumps({
+                'text': msg,
+                'chat_id': None,  # gateway routes to home
+                'parse_mode': 'Markdown'
+            }).encode()
+            req = urllib.request.Request(
+                'http://localhost:8642/api/telegram/send',
+                data=payload,
+                headers={'Content-Type': 'application/json'},
+                method='POST'
+            )
+            urllib.request.urlopen(req, timeout=3)
+            _last_alert_notification[key] = now
+            print(f"[MONITOR] Notified: {msg}")
+        except Exception as e:
+            print(f"[MONITOR] Alert notification failed: {e}")
+
+# ---------------------------------------------------------------------------
+# Process CPU history tracking
+# ---------------------------------------------------------------------------
+_last_process_snapshot_detail = []
+_last_process_detail_time = 0
+_process_detail_ttl = 10
+
+def _collect_process_snapshot():
+    """Track top processes over time for CPU history."""
+    global _last_process_snapshot_detail, _last_process_detail_time
+    now = time.time()
+    if now - _last_process_detail_time < _process_detail_ttl and _last_process_snapshot_detail:
+        return _last_process_snapshot_detail
+    procs = []
+    for p in psutil.process_iter(['pid', 'name', 'cpu_percent', 'memory_percent', 'memory_info']):
+        try:
+            info = p.info
+            mem_info = info.get('memory_info')
+            rss = mem_info.rss if mem_info is not None else 0
+            procs.append({
+                'pid': info['pid'],
+                'name': info['name'] or '?',
+                'cpu_percent': round(info.get('cpu_percent') or 0, 1),
+                'memory_mb': round(rss / (1024**2), 1),
+            })
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            pass
+    procs.sort(key=lambda x: x['cpu_percent'], reverse=True)
+    _last_process_snapshot_detail = procs[:10]
+    _last_process_detail_time = now
+    return _last_process_snapshot_detail
+
+
 def _background_collector():
     global _save_counter, _cached_status
     print("[MONITOR] Background collector started")
@@ -683,8 +933,10 @@ def _background_collector():
             swap = psutil.swap_memory()
             partitions = _collect_disks()
 
-            # CPU temp history (use first available sensor)
-            _first_temp = list(cpu['temps'].values())[0] if cpu['temps'] else 0
+            # CPU temp history (use first non-zero sensor temp, fallback to max)
+            temps_list = list(cpu['temps'].values())
+            non_zero = [t for t in temps_list if t > 0]
+            _first_temp = non_zero[0] if non_zero else (temps_list[0] if temps_list else 0)
             H['cpu_temp'].append({'t': ts, 'v': _first_temp})
             H['cpu_freq'].append({'t': ts, 'v': cpu['freq']['current']})
             H['cpu_percent'].append({'t': ts, 'v': cpu['percent']})
@@ -702,6 +954,23 @@ def _background_collector():
             if gpus:
                 H['gpu'].append({'t': ts, 'gpus': gpus})
                 H['gpu_freq'].append({'t': ts, 'v': gpus[0].get('core_clock', 0)})
+                vram_pct = round(gpus[0]['memory_used_gb'] / gpus[0]['memory_total_gb'] * 100, 1) if gpus[0]['memory_total_gb'] > 0 else 0
+                H['gpu_vram'].append({'t': ts, 'v': vram_pct})
+                H['gpu_power'].append({'t': ts, 'v': gpus[0].get('power_w', 0)})
+
+            # Swap history
+            H['swap'].append({'t': ts, 'percent': swap.percent, 'used_gb': round(swap.used / (1024**3), 3),
+                              'total_gb': round(swap.total / (1024**3), 1) if swap.total > 0 else 0,
+                              'sin_gb': round(swap.sin / (1024**3), 3),
+                              'sout_gb': round(swap.sout / (1024**3), 3)})
+
+            # Network errors/drops history
+            H['net_errors'].append({'t': ts, 'errin': net['errors_in'], 'errout': net['errors_out'],
+                                    'dropin': net['drop_in'], 'dropout': net['drop_out']})
+
+            # Process snapshot history (top processes CPU)
+            procs_snap = _collect_process_snapshot()
+            H['process_snapshot'].append({'t': ts, 'procs': procs_snap[:5]})
 
             # Build cached status
             ram_data = {
@@ -738,6 +1007,11 @@ def _background_collector():
             }
             status_data['alerts'] = _check_alerts(status_data)
             status_data['health_score'] = _compute_health(status_data)
+            # Send notifications for critical alerts (non-blocking)
+            try:
+                _send_alert_notification(status_data['alerts'])
+            except Exception:
+                pass
             with _cached_status_lock:
                 _cached_status = status_data
 
@@ -870,6 +1144,64 @@ def export_data():
 def get_llama():
     """llama-server status + metrics."""
     return jsonify(_query_llama())
+
+
+@app.route('/api/trading')
+def get_trading():
+    """Hermes trading engine status."""
+    return jsonify(_collect_trading_engine())
+
+
+@app.route('/api/systemd')
+def get_systemd():
+    """Systemd service health."""
+    return jsonify({'services': _collect_systemd()})
+
+
+@app.route('/api/frigate')
+def get_frigate():
+    """Frigate NVR status."""
+    return jsonify(_collect_frigate())
+
+
+@app.route('/api/export/csv')
+def export_csv():
+    """Export current history as CSV."""
+    import csv
+    import io
+    with _collection_lock:
+        hist = {k: list(H[k]) for k in H}
+    si = io.StringIO()
+    writer = csv.writer(si)
+    writer.writerow(['timestamp', 'metric', 'value', 'units'])
+    for key, points in hist.items():
+        for p in points:
+            if isinstance(p, dict) and 't' in p:
+                for k2, v2 in p.items():
+                    if k2 == 't':
+                        continue
+                    if isinstance(v2, (int, float)):
+                        writer.writerow([p['t'], f"{key}.{k2}", v2, ''])
+                    elif isinstance(v2, list):
+                        for item in v2:
+                            if isinstance(item, dict):
+                                for sk, sv in item.items():
+                                    if isinstance(sv, (int, float)):
+                                        writer.writerow([p['t'], f"{key}.{k2}.{sk}", sv, ''])
+    resp = app.response_class(
+        response=si.getvalue(),
+        status=200,
+        mimetype='text/csv',
+        headers={'Content-Disposition': 'attachment; filename=hardware-monitor.csv'}
+    )
+    return resp
+
+
+@app.route('/api/process-history')
+def get_process_history():
+    """Historical top-process snapshots."""
+    with _collection_lock:
+        return jsonify(list(H['process_snapshot']))
 
 
 # ---------------------------------------------------------------------------

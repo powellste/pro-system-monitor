@@ -261,6 +261,7 @@
     <div class="header-actions">
       <button class="btn btn-icon" onclick="toggleTheme()" title="Toggle Theme">🌓</button>
       <button class="btn btn-icon" onclick="exportData()" title="Export JSON">📥</button>
+      <button class="btn btn-icon" onclick="exportCsv()" title="Export CSV">📊</button>
       <button class="btn btn-primary" onclick="fetchAll()" title="Refresh now"><span>🔄</span><span> Refresh</span></button>
     </div>
   </header>
@@ -345,6 +346,7 @@
         <div class="metric" id="disk-free-metric"><div class="metric-value" id="disk-free">--<span class="unit">GB</span></div><div class="metric-label">Free</div></div>
       </div>
       <div class="usage-bar"><div class="usage-fill good" id="disk-bar" style="width:0%"></div></div>
+    <div id="disk-projection" style="font-size:.72rem;color:var(--text-3);margin-top:6px;text-align:center"></div>
     <div class="part-grid" id="disk-part-grid" style="margin-top:8px"></div>
       <div class="time-range" id="disk-time-range">
         <button class="time-btn active" data-min="0">ALL</button>
@@ -425,12 +427,16 @@
       <button class="time-btn" data-min="15">15m</button>
     </div>
     <div class="chart-wrap" style="margin-top:14px;height:200px"><canvas id="chartGpuTemp"></canvas></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px">
+      <div><div class="chart-wrap" style="height:140px"><canvas id="chartGpuVram"></canvas></div></div>
+      <div><div class="chart-wrap" style="height:140px"><canvas id="chartGpuPower"></canvas></div></div>
+    </div>
   </div>
 
   <!-- GPU Frequency Card (separate chart) -->
   <div class="card card-full" id="gpu-freq-card" style="margin-top:16px;display:none">
     <div class="card-header">
-      <span class="card-title">🎮 GPU Core Clock</span>
+      <span class="card-title">🎮 GPU Core Clock & Fan Curve</span>
       <span class="card-badge" id="gpu-freq-badge">-- MHz</span>
     </div>
     <div class="time-range" id="gpu-freq-time-range">
@@ -439,7 +445,8 @@
       <button class="time-btn" data-min="10">10m</button>
       <button class="time-btn" data-min="15">15m</button>
     </div>
-    <div class="chart-wrap" style="height:200px"><canvas id="chartGpuFreq"></canvas></div>
+    <div class="chart-wrap" style="height:180px"><canvas id="chartGpuFreq"></canvas></div>
+    <div class="chart-wrap" style="height:140px;margin-top:8px"><canvas id="chartGpuFanCurve"></canvas></div>
   </div>
 
   <!-- THERMAL & FANS CARD -->
@@ -473,6 +480,69 @@
     <div id="dockerBody"><div style="color:var(--text-3);font-size:.85rem;padding:12px 0">Docker not available</div></div>
   </div>
 
+  <!-- TRADING ENGINE CARD -->
+  <div class="card card-full" style="margin-top:16px" id="trading-card">
+    <div class="card-header">
+      <span class="card-title">📈 Trading Engine</span>
+      <span class="card-badge" id="trading-badge">offline</span>
+    </div>
+    <div id="tradingBody">
+      <div class="llama-offline">⬤ Trading engine not reachable on :5100</div>
+    </div>
+  </div>
+
+  <!-- SYSTEMD SERVICES CARD -->
+  <div class="card card-full" style="margin-top:16px" id="systemd-card">
+    <div class="card-header">
+      <span class="card-title">⚙️ Services</span>
+      <span class="card-badge" id="systemd-badge">0</span>
+    </div>
+    <div id="systemdBody">
+      <div style="color:var(--text-3);font-size:.85rem;padding:12px 0">Loading...</div>
+    </div>
+  </div>
+
+  <!-- FRIGATE CARD -->
+  <div class="card card-full" style="margin-top:16px" id="frigate-card">
+    <div class="card-header">
+      <span class="card-title">📹 Frigate NVR</span>
+      <span class="card-badge" id="frigate-badge">offline</span>
+    </div>
+    <div id="frigateBody">
+      <div style="color:var(--text-3);font-size:.85rem;padding:12px 0">Frigate not reachable</div>
+    </div>
+  </div>
+
+  <!-- SWAP PRESSURE HISTORY CARD -->
+  <div class="card card-full" style="margin-top:16px" id="swap-card">
+    <div class="card-header">
+      <span class="card-title">💽 Swap Pressure</span>
+      <span class="card-badge">history</span>
+    </div>
+    <div class="time-range" id="swap-time-range">
+      <button class="time-btn active" data-min="0">ALL</button>
+      <button class="time-btn" data-min="5">5m</button>
+      <button class="time-btn" data-min="10">10m</button>
+      <button class="time-btn" data-min="15">15m</button>
+    </div>
+    <div class="chart-wrap" style="height:160px"><canvas id="chartSwap"></canvas></div>
+  </div>
+
+  <!-- NETWORK ERRORS/DROPS CARD -->
+  <div class="card card-full" style="margin-top:16px" id="net-errors-card">
+    <div class="card-header">
+      <span class="card-title">🌐 Net Errors/Drops</span>
+      <span class="card-badge">cumulative</span>
+    </div>
+    <div class="time-range" id="net-errors-time-range">
+      <button class="time-btn active" data-min="0">ALL</button>
+      <button class="time-btn" data-min="5">5m</button>
+      <button class="time-btn" data-min="10">10m</button>
+      <button class="time-btn" data-min="15">15m</button>
+    </div>
+    <div class="chart-wrap" style="height:160px"><canvas id="chartNetErrors"></canvas></div>
+  </div>
+
   <!-- PINNED PROCESSES CARD -->
   <div class="card card-full" style="margin-top:16px" id="pinned-card">
     <div class="card-header">
@@ -486,7 +556,9 @@
   <div class="card card-full" style="margin-top:16px">
     <div class="card-header">
       <span class="card-title">⚙️ Top Processes</span>
-      <div style="display:flex;gap:6px">
+      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+        <input type="text" id="procSearch" placeholder="Filter..." style="background:var(--surface-2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:4px 8px;font-size:.75rem;width:120px" oninput="filterProcs()">
+        <span class="card-badge" id="procCount">--</span>
         <button class="btn btn-sm" onclick="sortProcs('cpu')">CPU</button>
         <button class="btn btn-sm" onclick="sortProcs('memory')">RAM</button>
         <button class="btn btn-sm" onclick="sortProcs('ram_mb')">RAM MB</button>
@@ -494,9 +566,11 @@
     </div>
     <div class="table-wrap"><table><thead><tr>
       <th>PID</th><th>Name</th><th>CPU%</th><th>RAM%</th><th>RAM MB</th><th>Status</th>
-    </tr></thead><tbody id="procBody"></tbody></table></div>
+    </tr></thead><tbody id="procBody"></tbody></table>
+    <div class="chart-wrap" style="height:80px;margin-top:6px"><canvas id="chartProcHistory"></canvas></div>
   </div>
-
+  </div>
+  
   <!-- ALERTS SECTION -->
   <div class="card card-full" style="margin-top:16px" id="alerts-card">
     <div class="card-header">
@@ -504,6 +578,15 @@
       <span class="card-badge" id="alert-count">0</span>
     </div>
     <div class="alerts" id="alertList"><div style="color:var(--text-3);font-size:.85rem;padding:8px 0">No active alerts</div></div>
+  </div>
+
+  <!-- ALERT HISTORY -->
+  <div class="card card-full" style="margin-top:16px" id="alert-history-card">
+    <div class="card-header">
+      <span class="card-title">📜 Alert History</span>
+      <span class="card-badge" id="alert-history-count">0</span>
+    </div>
+    <div id="alertHistoryBody"><div style="color:var(--text-3);font-size:.78rem;padding:8px 0">No alerts recorded this session</div></div>
   </div>
 
   <!-- STATUS BAR -->
@@ -568,7 +651,7 @@ const toast = msg => {
   clearTimeout(t._h); t._h=setTimeout(()=>t.classList.remove('show'),2500);
 };
 
-// Time range helpers
+// TIME RANGE HELPERS
 function getTimeRange(chartId) {
   return timeRanges[chartId] || 0; // 0 = ALL
 }
@@ -579,9 +662,34 @@ function filterByTime(arr, minutes) {
   return arr.filter(p => p.t >= cutoff);
 }
 
-// Setup time range buttons
+// Extended time range presets
+const TIME_PRESETS = [
+  {min: 0, label: 'ALL'},
+  {min: 5, label: '5m'},
+  {min: 10, label: '10m'},
+  {min: 15, label: '15m'},
+  {min: 30, label: '30m'},
+  {min: 60, label: '1h'},
+  {min: 360, label: '6h'},
+  {min: 1440, label: '24h'},
+];
+
+// Setup time range buttons — extended with 30m/1h/6h/24h
 function setupTimeButtons() {
   document.querySelectorAll('.time-range').forEach(container => {
+    // Append extended time buttons after existing ones
+    const existingMins = new Set();
+    container.querySelectorAll('.time-btn').forEach(b => existingMins.add(parseInt(b.dataset.min)));
+    TIME_PRESETS.forEach(p => {
+      if (!existingMins.has(p.min)) {
+        const btn = document.createElement('button');
+        btn.className = 'time-btn';
+        btn.dataset.min = p.min;
+        btn.textContent = p.label;
+        container.appendChild(btn);
+      }
+    });
+    // Bind clicks
     container.querySelectorAll('.time-btn').forEach(btn => {
       btn.addEventListener('click', function() {
         container.querySelectorAll('.time-btn').forEach(b => b.classList.remove('active'));
@@ -589,7 +697,6 @@ function setupTimeButtons() {
         const chartId = container.id.replace('-time-range', '');
         const min = parseInt(this.dataset.min) || 0;
         timeRanges[chartId] = min;
-        // Force chart redraw
         if (historyData) updateCharts(historyData);
       });
     });
@@ -665,7 +772,8 @@ function renderStatus(d){
   $('heroMeta').textContent = `${d.platform||''} • ${d.alerts?.length||0} alert(s)`;
 
   // CPU
-  const temp = cpu.temps && Object.values(cpu.temps).length ? Object.values(cpu.temps)[0] : 0;
+  const tempVals = cpu.temps ? Object.values(cpu.temps).filter(v => v > 0) : [];
+  const temp = tempVals.length ? tempVals[0] : 0;
   $('cpu-temp').innerHTML = fmt(temp,1)+'<span class="unit">°C</span>';
   $('cpu-usage').innerHTML = cpu.percent+'<span class="unit">%</span>';
   $('cpu-freq').innerHTML = fmt(cpu.freq.current/1000,2)+'<span class="unit">GHz</span>';
@@ -762,6 +870,9 @@ function renderStatus(d){
 
   // GPU
   renderGpu(gpus);
+  
+  // Track alerts for history
+  trackAlerts(d.alerts || []);
 }
 
 // RENDER THERMAL & FANS
@@ -868,7 +979,8 @@ function renderGpu(gpus){
         <div class="gpu-stat"><div class="gpu-stat-val" style="color:var(--${tCls==='danger'?'danger':tCls==='warning'?'warning':'success'})">${g.temperature}°C</div><div class="gpu-stat-lbl">Temp</div></div>
         <div class="gpu-stat"><div class="gpu-stat-val">${g.fan_speed>=0?g.fan_speed+'%':'—'}</div><div class="gpu-stat-lbl">Fan</div></div>
         <div class="gpu-stat"><div class="gpu-stat-val" style="color:var(--${uCls==='danger'?'danger':uCls==='warning'?'warning':'success'})">${g.utilization_gpu}%</div><div class="gpu-stat-lbl">Core Util</div></div>
-        <div class="gpu-stat"><div class="gpu-stat-val">${g.core_clock}${g.max_clock?' / '+g.max_clock:''}</div><div class="gpu-stat-lbl">Core Clock (MHz) — ${clockPct}%</div></div>
+        <div class="gpu-stat"><div class="gpu-stat-val">${g.core_clock}${g.max_clock?' / '+g.max_clock:''}</div><div class="gpu-stat-lbl">Core Clock (MHz)</div></div>
+        <div class="gpu-stat"><div class="gpu-stat-val">${g.mem_clock > 0 ? g.mem_clock+' / '+g.max_mem_clock : '—'}</div><div class="gpu-stat-lbl">Mem Clock (MHz)</div></div>
         <div class="gpu-stat"><div class="gpu-stat-val">${g.power_w > 0 ? g.power_w+'W' : '—'}</div><div class="gpu-stat-lbl">Power</div></div>
         <div class="gpu-stat"><div class="gpu-stat-val">${g.memory_used_gb} / ${g.memory_total_gb}</div><div class="gpu-stat-lbl">VRAM (GB) — ${memPct}%</div></div>
       </div>
@@ -898,15 +1010,100 @@ function renderLlama(d){
   badge.textContent = 'online';
   badge.style.color = 'var(--success)';
   const ctxPct = d.context_max > 0 ? (d.context_used/d.context_max*100).toFixed(1) : 0;
+  const genTime = d.generation_time_seconds || 0;
+  const genTimeStr = genTime >= 3600
+    ? Math.floor(genTime/3600)+'h '+Math.floor((genTime%3600)/60)+'m'
+    : genTime >= 60
+      ? Math.floor(genTime/60)+'m '+Math.floor(genTime%60)+'s'
+      : genTime.toFixed(1)+'s';
+  const avgSpeed = d.total_predicted_tokens > 0 && genTime > 0
+    ? (d.total_predicted_tokens / genTime).toFixed(1)
+    : d.gen_tps;
   body.innerHTML = `
-    <div class="llama-online"><span class="dot online"></span> ${d.model||'unknown model'}</div>
+    <div class="llama-online"><span class="dot online"></span> ${d.model||'unknown model'}
+      <span style="margin-left:auto;font-size:.75rem;color:var(--text-3)">⬤ ${genTimeStr} gen time</span>
+    </div>
     <div class="llama-grid">
       <div class="llama-stat"><div class="val">${d.prompt_tps !== null ? d.prompt_tps+' tok/s' : '—'}</div><div class="lbl">Prompt TPS</div></div>
       <div class="llama-stat"><div class="val">${d.gen_tps !== null ? d.gen_tps+' tok/s' : '—'}</div><div class="lbl">Gen TPS</div></div>
-      <div class="llama-stat"><div class="val">${d.total_tokens || 0}</div><div class="lbl">Tokens (last)</div></div>
+      <div class="llama-stat"><div class="val">${fmt(d.total_tokens/1e6,2)}<span style="font-size:.65rem;color:var(--text-3)">M</span></div><div class="lbl">Lifetime Tokens <span style="font-size:.65rem;color:var(--text-3)">(${d.total_prompt_tokens.toLocaleString()}P / ${d.total_predicted_tokens.toLocaleString()}G)</span></div></div>
+      <div class="llama-stat"><div class="val" style="color:${d.requests_processing > 0 ? 'var(--warning)' : 'var(--text-2)'}">${d.requests_processing}</div><div class="lbl">Processing</div></div>
       <div class="llama-stat"><div class="val">${d.context_used.toLocaleString()} / ${d.context_max.toLocaleString()}</div><div class="lbl">Context — ${ctxPct}%</div></div>
+      <div class="llama-stat"><div class="val" style="color:${d.requests_deferred > 0 ? 'var(--warning)' : 'var(--text-2)'}">${d.requests_deferred}</div><div class="lbl">Deferred</div></div>
     </div>
   `;
+}
+
+// RENDER TRADING ENGINE
+function renderTrading(d) {
+  const body = document.getElementById('tradingBody');
+  const badge = document.getElementById('trading-badge');
+  if (!d || !d.alive) {
+    if (badge) { badge.textContent = 'offline'; badge.style.color = 'var(--danger)'; }
+    if (body) body.innerHTML = '<div class="llama-offline">⬤ Trading engine not reachable on :5100</div>';
+    return;
+  }
+  if (badge) { badge.textContent = 'online'; badge.style.color = 'var(--success)'; }
+  const upt = d.uptime || 0;
+  const uptStr = upt >= 3600 ? Math.floor(upt/3600)+'h '+Math.floor((upt%3600)/60)+'m'
+    : upt >= 60 ? Math.floor(upt/60)+'m '+Math.floor(upt%60)+'s'
+    : upt.toFixed(0)+'s';
+  const stratCount = Array.isArray(d.strategies) ? d.strategies.length : 0;
+  const activeStrats = Array.isArray(d.strategies) ? d.strategies.filter(s => s.active !== false).length : 0;
+  const pairCount = Array.isArray(d.pairs) ? d.pairs.length : 0;
+  const dqOk = d.data_quality >= 60;
+  const pnlCls = d.daily_pnl > 0 ? 'var(--success)' : d.daily_pnl < 0 ? 'var(--danger)' : 'var(--text-2)';
+  body.innerHTML = `
+    <div class="llama-online" style="margin-bottom:4px"><span class="dot online"></span> ${d.model||'paper'} — $${fmt(d.balance,0)}
+      <span style="margin-left:auto;font-size:.75rem;color:var(--text-3)">⬤ ${uptStr}</span>
+    </div>
+    <div class="llama-grid">
+      <div class="llama-stat"><div class="val" style="color:${d.open_trades > 0 ? 'var(--warning)' : 'var(--success)'}">${d.open_trades}</div><div class="lbl">Open Trades</div></div>
+      <div class="llama-stat"><div class="val" style="color:${pnlCls}">${d.daily_pnl >= 0 ? '+' : ''}$${fmt(d.daily_pnl,0)}</div><div class="lbl">Daily P&L</div></div>
+      <div class="llama-stat"><div class="val">$${fmt(d.equity,0)}</div><div class="lbl">Equity</div></div>
+      <div class="llama-stat"><div class="val" style="color:${d.drawdown > 0.05 ? 'var(--danger)' : 'var(--text-2)'}">${(d.drawdown*100).toFixed(2)}%</div><div class="lbl">Drawdown</div></div>
+      <div class="llama-stat"><div class="val">${pairCount}</div><div class="lbl">Pairs</div></div>
+      <div class="llama-stat"><div class="val" style="color:${dqOk ? 'var(--success)' : 'var(--danger)'}">${d.data_quality}</div><div class="lbl">DQ${d.degraded_pairs > 0 ? ' ('+d.degraded_pairs+' degraded)' : ''}</div></div>
+      <div class="llama-stat"><div class="val">${activeStrats}/${stratCount}</div><div class="lbl">Strats</div></div>
+      <div class="llama-stat"><div>—</div><div class="lbl">Staleness</div></div>
+    </div>`;
+}
+
+// RENDER SYSTEMD SERVICES
+function renderSystemd(services) {
+  const body = document.getElementById('systemdBody');
+  const badge = document.getElementById('systemd-badge');
+  if (!services || !services.length) {
+    if (body) body.innerHTML = '<div style="color:var(--text-3);font-size:.85rem;padding:12px 0">No services</div>';
+    if (badge) badge.textContent = '0';
+    return;
+  }
+  const active = services.filter(s => s.active).length;
+  if (badge) badge.textContent = active+'/'+services.length;
+  const rows = services.map(s => {
+    const cls = s.active ? 'success' : 'danger';
+    const icon = s.active ? '🟢' : '🔴';
+    const enTxt = s.enabled ? '' : ' (disabled)';
+    return '<tr><td style="white-space:nowrap">'+icon+' <span style="font-weight:600">'+s.name+'</span>'+enTxt+'</td><td><span class="badge" style="background:var(--'+cls+'-bg);color:var(--'+cls+')">'+(s.active?'active':'inactive')+'</span></td></tr>';
+  }).join('');
+  body.innerHTML = '<div class="table-wrap"><table><thead><tr><th>Service</th><th>Status</th></tr></thead><tbody>'+rows+'</tbody></table></div>';
+}
+
+// RENDER FRIGATE
+function renderFrigate(d) {
+  const body = document.getElementById('frigateBody');
+  const badge = document.getElementById('frigate-badge');
+  if (!d || !d.alive) {
+    if (badge) { badge.textContent = 'offline'; badge.style.color = 'var(--danger)'; }
+    if (body) body.innerHTML = '<div style="color:var(--text-3);font-size:.85rem;padding:12px 0">⬤ Frigate not reachable on :5000</div>';
+    return;
+  }
+  if (badge) { badge.textContent = d.cameras.length+' cams'; badge.style.color = 'var(--success)'; }
+  const camHtml = Array.isArray(d.cameras) && d.cameras.length > 0
+    ? d.cameras.map(c => `<div class="iface-item"><div class="iface-name">📹 ${c.name}</div><div class="iface-stat"><span>FPS</span><span class="val">${c.fps}</span></div><div class="iface-stat"><span>Detection</span><span class="val" style="color:${c.detection_fps > 0 ? 'var(--warning)' : 'var(--text-2)'}">${c.detection_fps} fps</span></div></div>`).join('')
+    : '<div style="color:var(--text-3);font-size:.75rem">No cameras detected</div>';
+  body.innerHTML = `<div class="llama-online"><span class="dot online"></span> Frigate NVR</div>
+    <div class="iface-grid" style="margin-top:8px">${camHtml}</div>`;
 }
 
 // RENDER DOCKER
@@ -959,19 +1156,91 @@ function renderAlerts(alerts){
   ).join('');
 }
 
+// PROCESS SEARCH
+let _allProcs = [];
+function filterProcs() {
+  const q = ($('procSearch').value || '').toLowerCase().trim();
+  const body = $('procBody');
+  if (!q) {
+    body.innerHTML = _allProcs.map(p => procRow(p)).join('');
+    return;
+  }
+  const filtered = _allProcs.filter(p => (p.name||'').toLowerCase().includes(q) || String(p.pid).includes(q));
+  body.innerHTML = filtered.map(p => procRow(p)).join('');
+  $('procCount').textContent = filtered.length;
+}
+function procRow(p) {
+  return `<tr><td>${p.pid}</td><td class="proc-name" title="${p.name}">${p.name}</td><td>${p.cpu_percent}</td><td>${p.memory_percent}</td><td>${p.memory_mb}</td><td><span class="badge" style="background:var(--surface-3)">${p.status}</span></td></tr>`;
+}
+
+// DISK SPACE PROJECTION
+function diskProjection(hist) {
+  const el = document.getElementById('disk-projection');
+  if (!el || !hist || !hist.disk || hist.disk.length < 5) {
+    if (el) el.innerHTML = '';
+    return;
+  }
+  // Calculate average percent increase per sample
+  const samples = hist.disk.slice(-20);
+  if (samples.length < 5) return;
+  let totalDelta = 0;
+  let count = 0;
+  for (let i = 1; i < samples.length; i++) {
+    const delta = samples[i].percent - samples[i-1].percent;
+    if (delta > 0) { totalDelta += delta; count++; }
+  }
+  if (count === 0) { el.innerHTML = '<span style="color:var(--success)">✓ Not growing</span>'; return; }
+  const avgDeltaPerSample = totalDelta / count;
+  if (avgDeltaPerSample <= 0) { el.innerHTML = '<span style="color:var(--success)">✓ Not growing</span>'; return; }
+  const remaining = 100 - samples[samples.length-1].percent;
+  const samplesToFull = remaining / avgDeltaPerSample;
+  const interval = 10; // seconds
+  const secondsToFull = samplesToFull * interval;
+  const days = secondsToFull / 86400;
+  if (days > 365) { el.innerHTML = '✓ Stable'; return; }
+  const cls = days < 30 ? 'var(--danger)' : days < 90 ? 'var(--warning)' : 'var(--success)';
+  el.innerHTML = days < 1
+    ? `<span style="color:var(--danger)">⚠️ ${Math.round(secondsToFull/3600)}h until full</span>`
+    : `<span style="color:${cls}">📅 ~${Math.round(days)}d until full</span>`;
+}
+
+// ALERT HISTORY (client-side log)
+let alertHistory = [];
+function trackAlerts(alerts) {
+  const now = Date.now();
+  if (alerts.length === 0) return;
+  alerts.forEach(a => {
+    const key = a.source+':'+a.message;
+    if (!alertHistory.some(h => h.key === key && (now - h.time < 300000))) {
+      alertHistory.unshift({ key, source: a.source, message: a.message, severity: a.severity, time: now });
+    }
+  });
+  if (alertHistory.length > 200) alertHistory.length = 200;
+  renderAlertHistory();
+}
+function renderAlertHistory() {
+  const el = document.getElementById('alertHistoryBody');
+  if (!el) return;
+  if (alertHistory.length === 0) {
+    el.innerHTML = '<div style="color:var(--text-3);font-size:.78rem;padding:8px 0">No alerts recorded this session</div>';
+    return;
+  }
+  el.innerHTML = alertHistory.slice(0, 30).map(a => {
+    const t = new Date(a.time);
+    const ts = String(t.getHours()).padStart(2,'0')+':'+String(t.getMinutes()).padStart(2,'0')+':'+String(t.getSeconds()).padStart(2,'0');
+    const icon = a.severity === 'critical' ? '🔴' : '⚠️';
+    return `<div class="therm-item"><span style="min-width:50px;font-size:.7rem;color:var(--text-3)">${ts}</span><span style="min-width:60px;font-weight:600;font-size:.75rem">${icon} ${a.source}</span><span style="font-size:.75rem;color:var(--text-2)">${a.message}</span></div>`;
+  }).join('');
+}
+
 // RENDER PROCESSES
 function renderProcesses(data){
   if(!data) return;
-  $('procBody').innerHTML = data.processes.map(p =>
-    `<tr>
-      <td>${p.pid}</td>
-      <td class="proc-name" title="${p.name}">${p.name}</td>
-      <td>${p.cpu_percent}</td>
-      <td>${p.memory_percent}</td>
-      <td>${p.memory_mb}</td>
-      <td><span class="badge" style="background:var(--surface-3)">${p.status}</span></td>
-    </tr>`
-  ).join('');
+  _allProcs = data.processes;
+  const q = ($('procSearch').value || '').toLowerCase().trim();
+  const filtered = q ? _allProcs.filter(p => (p.name||'').toLowerCase().includes(q) || String(p.pid).includes(q)) : _allProcs;
+  $('procBody').innerHTML = filtered.map(p => procRow(p)).join('');
+  if ($('procCount')) $('procCount').textContent = filtered.length;
   renderPinned(data.processes);
 }
 
@@ -1069,6 +1338,36 @@ function initCharts(){
   charts.gpuFreq = newChart('chartGpuFreq','line',[],[
     {label:'GPU Core Clock (MHz)', data:[], ...CHART_COLORS.pink, fill:true, tension:.3, pointRadius:0, borderWidth:2}
   ],{scales:{y:{title:{display:true,text:'Frequency (MHz)'},min:0}}});
+
+  charts.gpuFanCurve = newChart('chartGpuFanCurve','line',[],[
+    {label:'Fan Speed (%)', data:[], ...CHART_COLORS.cyan, fill:true, tension:.3, pointRadius:0, borderWidth:2,yAxisID:'y'},
+    {label:'Temp (°C)', data:[], ...CHART_COLORS.red, fill:false, tension:.3, pointRadius:0, borderWidth:2,yAxisID:'y1'}
+  ],{scales:{y:{title:{display:true,text:'Fan %'},min:0,max:100,position:'left'},y1:{title:{display:true,text:'°C'},min:20,max:100,position:'right',grid:{drawOnChartArea:false}}}});
+
+  // Swap, VRAM, Power, Net Errors
+  charts.swap = newChart('chartSwap','line',[],[
+    {label:'Swap Used (GB)', data:[], ...CHART_COLORS.orange, fill:true, tension:.3, pointRadius:0, borderWidth:2,yAxisID:'y'},
+    {label:'Swap In (GB/sample)', data:[], ...CHART_COLORS.red, fill:false, tension:.3, pointRadius:0, borderWidth:1,yAxisID:'y1',borderDash:[3,2]},
+    {label:'Swap Out (GB/sample)', data:[], ...CHART_COLORS.purple, fill:false, tension:.3, pointRadius:0, borderWidth:1,yAxisID:'y1',borderDash:[3,2]}
+  ],{scales:{y:{title:{display:true,text:'GB'},min:0},y1:{title:{display:true,text:'GB/sample'},position:'right',grid:{drawOnChartArea:false}}}});
+
+  charts.gpuVram = newChart('chartGpuVram','line',[],[
+    {label:'VRAM Used (%)', data:[], ...CHART_COLORS.green, fill:true, tension:.3, pointRadius:0, borderWidth:2}
+  ],{scales:{y:{title:{display:true,text:'VRAM %'},min:0,max:100}}});
+
+  charts.gpuPower = newChart('chartGpuPower','line',[],[
+    {label:'Power (W)', data:[], ...CHART_COLORS.orange, fill:true, tension:.3, pointRadius:0, borderWidth:2}
+  ],{scales:{y:{title:{display:true,text:'Watts'},min:0}}});
+
+  charts.netErrors = newChart('chartNetErrors','line',[],[
+    {label:'Errors In', data:[], ...CHART_COLORS.red, fill:true, tension:.3, pointRadius:0, borderWidth:1,yAxisID:'y'},
+    {label:'Errors Out', data:[], ...CHART_COLORS.orange, fill:true, tension:.3, pointRadius:0, borderWidth:1,yAxisID:'y'},
+    {label:'Drops In', data:[], ...CHART_COLORS.purple, fill:false, tension:.3, pointRadius:0, borderWidth:1,yAxisID:'y1',borderDash:[3,2]},
+    {label:'Drops Out', data:[], ...CHART_COLORS.cyan, fill:false, tension:.3, pointRadius:0, borderWidth:1,yAxisID:'y1',borderDash:[3,2]}
+  ],{scales:{y:{title:{display:true,text:'Errors'},position:'left'},y1:{title:{display:true,text:'Drops'},position:'right',grid:{drawOnChartArea:false}}}});
+
+  // Process CPU history (mini chart)
+  charts.procHistory = newChart('chartProcHistory','line',[],[]);
 }
 
 function updateCharts(hist){
@@ -1203,6 +1502,75 @@ function updateCharts(hist){
     charts.gpuFreq.update('none');
   }
 
+  // GPU Fan Curve (GPU temp + fan speed overlay)
+  const gpuHist2 = filterByTime(hist.gpu || [], gpuFreqMin);
+  if (gpuHist2.length > 0) {
+    charts.gpuFanCurve.data.labels = timeLabels(gpuHist2);
+    charts.gpuFanCurve.data.datasets[0].data = gpuHist2.map(p => p.gpus && p.gpus[0] ? p.gpus[0].fan_speed : null);
+    charts.gpuFanCurve.data.datasets[1].data = gpuHist2.map(p => p.gpus && p.gpus[0] ? p.gpus[0].temperature : null);
+    charts.gpuFanCurve.update('none');
+  }
+
+  // GPU VRAM chart
+  const gpuVramMin = getTimeRange('gpu');
+  const gpuVramHist = filterByTime(hist.gpu_vram || [], gpuVramMin);
+  charts.gpuVram.data.labels = timeLabels(gpuVramHist);
+  charts.gpuVram.data.datasets[0].data = gpuVramHist.map(p => p.v);
+  charts.gpuVram.update('none');
+
+  // GPU Power chart
+  const gpuPowerHist = filterByTime(hist.gpu_power || [], gpuVramMin);
+  charts.gpuPower.data.labels = timeLabels(gpuPowerHist);
+  charts.gpuPower.data.datasets[0].data = gpuPowerHist.map(p => p.v);
+  charts.gpuPower.update('none');
+
+  // Swap history
+  const swapMin = getTimeRange('swap');
+  const swapHist = filterByTime(hist.swap || [], swapMin);
+  if (swapHist.length > 0) {
+    charts.swap.data.labels = timeLabels(swapHist);
+    charts.swap.data.datasets[0].data = swapHist.map(p => p.used_gb);
+    charts.swap.data.datasets[1].data = swapHist.map(p => p.sin_gb);
+    charts.swap.data.datasets[2].data = swapHist.map(p => p.sout_gb);
+    charts.swap.update('none');
+  }
+
+  // Network errors/drops
+  const netErrMin = getTimeRange('net-errors');
+  const netErrHist = filterByTime(hist.net_errors || [], netErrMin);
+  if (netErrHist.length > 0) {
+    charts.netErrors.data.labels = timeLabels(netErrHist);
+    charts.netErrors.data.datasets[0].data = netErrHist.map(p => p.errin);
+    charts.netErrors.data.datasets[1].data = netErrHist.map(p => p.errout);
+    charts.netErrors.data.datasets[2].data = netErrHist.map(p => p.dropin);
+    charts.netErrors.data.datasets[3].data = netErrHist.map(p => p.dropout);
+    charts.netErrors.update('none');
+  }
+
+  // Process CPU history
+  const procHist = filterByTime(hist.process_snapshot || [], getTimeRange('cpu'));
+  if (procHist.length > 1 && procHist[0].procs) {
+    // Track the top 3 processes by name
+    const trackedNames = ['llama-server', 'python', 'cosmic-comp', 'hermes', 'ffmpeg'];
+    const datasets = [];
+    trackedNames.forEach(name => {
+      const data = procHist.map(p => {
+        const match = (p.procs || []).find(pp => pp.name && pp.name.toLowerCase().includes(name.toLowerCase()));
+        return match ? match.cpu_percent : 0;
+      });
+      const colorKeys = ['cyan','orange','purple','pink','red'];
+      const ck = colorKeys[datasets.length % colorKeys.length];
+      if (data.some(v => v > 0)) {
+        datasets.push({label: name, data, ...CHART_COLORS[ck], fill:false, tension:.3, pointRadius:0, borderWidth:1});
+      }
+    });
+    if (datasets.length > 0) {
+      charts.procHistory.data.labels = timeLabels(procHist);
+      charts.procHistory.data.datasets = datasets;
+      charts.procHistory.update('none');
+    }
+  }
+
   $('statusSamples').textContent = 'Samples: '+(hist.total_records||0);
 }
 
@@ -1212,13 +1580,32 @@ async function fetchAll(){
   if(fetching) return;
   fetching = true;
   try {
-    const [status, hist, procs, llama] = await Promise.all([fetchStatus(), fetchHistory(), fetchProcesses(), fetchLlama()]);
+    const [status, hist, procs, llama, trading, systemd, frigate] = await Promise.all([
+      fetchStatus(), fetchHistory(), fetchProcesses(), fetchLlama(),
+      fetchTrading(), fetchSystemd(), fetchFrigate()
+    ]);
     if(status) renderStatus(status);
-    if(hist) updateCharts(hist);
+    if(hist) { updateCharts(hist); diskProjection(hist); }
     if(procs) renderProcesses(procs);
     if(llama) renderLlama(llama);
+    if(trading) renderTrading(trading);
+    if(systemd) renderSystemd(systemd.services);
+    if(frigate) renderFrigate(frigate);
   } catch(e){ console.error(e); }
   finally { fetching = false; }
+}
+
+async function fetchTrading() {
+  try { const r = await fetch(_api('/api/trading')); return r.ok ? await r.json() : null; }
+  catch(e){ return null; }
+}
+async function fetchSystemd() {
+  try { const r = await fetch(_api('/api/systemd')); return r.ok ? await r.json() : null; }
+  catch(e){ return null; }
+}
+async function fetchFrigate() {
+  try { const r = await fetch(_api('/api/frigate')); return r.ok ? await r.json() : null; }
+  catch(e){ return null; }
 }
 
 // EXPORT
@@ -1233,6 +1620,17 @@ async function exportData(){
     a.click();
     toast('📥 Export downloaded');
   } catch(e){ toast('Export failed'); }
+}
+async function exportCsv(){
+  try {
+    const r = await fetch(_api('/api/export/csv'));
+    const blob = await r.blob();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'hardware-monitor-'+new Date().toISOString().slice(0,19)+'.csv';
+    a.click();
+    toast('📊 CSV exported');
+  } catch(e){ toast('CSV export failed'); }
 }
 
 // SORT PROCESSES
