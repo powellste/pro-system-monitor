@@ -116,6 +116,7 @@ H = {
     'swap': deque(maxlen=CONFIG['history_max']),
     'net_errors': deque(maxlen=CONFIG['history_max']),
     'process_snapshot': deque(maxlen=CONFIG['history_max']),
+    'llama': deque(maxlen=CONFIG['history_max']),
 }
 
 # Try loading persisted history from disk
@@ -971,6 +972,28 @@ def _background_collector():
             # Process snapshot history (top processes CPU)
             procs_snap = _collect_process_snapshot()
             H['process_snapshot'].append({'t': ts, 'procs': procs_snap[:5]})
+
+            # Llama server history (for time-series graphs)
+            try:
+                llama_now = _query_llama()
+                c_used = llama_now.get('context_used', 0)
+                c_max = llama_now.get('context_max', 0)
+                H['llama'].append({
+                    't': ts,
+                    'alive': bool(llama_now.get('alive')),
+                    'prompt_tps': llama_now.get('prompt_tps'),
+                    'gen_tps': llama_now.get('gen_tps'),
+                    'kv_usage_pct': round(c_used / c_max * 100, 1) if c_max else 0,
+                    'context_used': c_used,
+                    'context_max': c_max,
+                    'prompt_tokens_total': llama_now.get('total_prompt_tokens', 0),
+                    'predicted_tokens_total': llama_now.get('total_predicted_tokens', 0),
+                    'requests_processing': llama_now.get('requests_processing', 0),
+                    'requests_deferred': llama_now.get('requests_deferred', 0),
+                    'n_decode_total': llama_now.get('n_decode_total', 0),
+                })
+            except Exception as e:
+                print(f"[MONITOR] llama history collect error: {e}")
 
             # Build cached status
             ram_data = {

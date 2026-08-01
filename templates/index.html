@@ -469,6 +469,14 @@
     <div id="llamaBody">
       <div class="llama-offline">⬤ llama-server not reachable on :8080</div>
     </div>
+    <div id="llamaCharts" style="display:none">
+      <div class="chart-wrap" style="height:170px;margin-top:12px"><canvas id="chartLlamaTps"></canvas></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px">
+        <div class="chart-wrap" style="height:140px"><canvas id="chartLlamaKv"></canvas></div>
+        <div class="chart-wrap" style="height:140px"><canvas id="chartLlamaTokens"></canvas></div>
+      </div>
+      <div class="chart-wrap" style="height:110px;margin-top:10px"><canvas id="chartLlamaRequests"></canvas></div>
+    </div>
   </div>
 
   <!-- DOCKER CONTAINERS CARD -->
@@ -1005,10 +1013,12 @@ function renderLlama(d){
     badge.textContent = 'offline';
     badge.style.color = 'var(--danger)';
     body.innerHTML = '<div class="llama-offline">⬤ llama-server not reachable on :8080</div>';
+    const chartsEl = $('llamaCharts'); if (chartsEl) chartsEl.style.display = 'none';
     return;
   }
   badge.textContent = 'online';
   badge.style.color = 'var(--success)';
+  const chartsEl = $('llamaCharts'); if (chartsEl) chartsEl.style.display = 'block';
   const ctxPct = d.context_max > 0 ? (d.context_used/d.context_max*100).toFixed(1) : 0;
   const genTime = d.generation_time_seconds || 0;
   const genTimeStr = genTime >= 3600
@@ -1368,6 +1378,26 @@ function initCharts(){
 
   // Process CPU history (mini chart)
   charts.procHistory = newChart('chartProcHistory','line',[],[]);
+
+  // Llama server graphs
+  charts.llamaTps = newChart('chartLlamaTps','line',[],[
+    {label:'Prompt TPS', data:[], ...CHART_COLORS.cyan, fill:true, tension:.3, pointRadius:0, borderWidth:2},
+    {label:'Gen TPS', data:[], ...CHART_COLORS.green, fill:true, tension:.3, pointRadius:0, borderWidth:2}
+  ],{scales:{y:{title:{display:true,text:'tok/s'},min:0}}});
+
+  charts.llamaKv = newChart('chartLlamaKv','line',[],[
+    {label:'Context Used (%)', data:[], ...CHART_COLORS.purple, fill:true, tension:.3, pointRadius:0, borderWidth:2}
+  ],{scales:{y:{title:{display:true,text:'Context %'},min:0,max:100}}});
+
+  charts.llamaTokens = newChart('chartLlamaTokens','line',[],[
+    {label:'Prompt Tokens (M)', data:[], ...CHART_COLORS.blue, fill:true, tension:.3, pointRadius:0, borderWidth:2},
+    {label:'Predicted Tokens (M)', data:[], ...CHART_COLORS.orange, fill:true, tension:.3, pointRadius:0, borderWidth:2}
+  ],{scales:{y:{title:{display:true,text:'Tokens (M)'},min:0}}});
+
+  charts.llamaReqs = newChart('chartLlamaRequests','line',[],[
+    {label:'Processing', data:[], ...CHART_COLORS.orange, fill:true, tension:.3, pointRadius:0, borderWidth:2,yAxisID:'y'},
+    {label:'Deferred', data:[], ...CHART_COLORS.red, fill:false, tension:.3, pointRadius:0, borderWidth:1,yAxisID:'y',borderDash:[3,2]}
+  ],{scales:{y:{title:{display:true,text:'Requests'},min:0}}});
 }
 
 function updateCharts(hist){
@@ -1569,6 +1599,29 @@ function updateCharts(hist){
       charts.procHistory.data.datasets = datasets;
       charts.procHistory.update('none');
     }
+  }
+
+  // Llama server graphs
+  const llama = filterByTime(hist.llama || [], getTimeRange('llama'));
+  if (llama.length > 0 && charts.llamaTps) {
+    charts.llamaTps.data.labels = timeLabels(llama);
+    charts.llamaTps.data.datasets[0].data = llama.map(p => p.prompt_tps);
+    charts.llamaTps.data.datasets[1].data = llama.map(p => p.gen_tps);
+    charts.llamaTps.update('none');
+
+    charts.llamaKv.data.labels = timeLabels(llama);
+    charts.llamaKv.data.datasets[0].data = llama.map(p => p.kv_usage_pct);
+    charts.llamaKv.update('none');
+
+    charts.llamaTokens.data.labels = timeLabels(llama);
+    charts.llamaTokens.data.datasets[0].data = llama.map(p => (p.prompt_tokens_total||0)/1e6);
+    charts.llamaTokens.data.datasets[1].data = llama.map(p => (p.predicted_tokens_total||0)/1e6);
+    charts.llamaTokens.update('none');
+
+    charts.llamaReqs.data.labels = timeLabels(llama);
+    charts.llamaReqs.data.datasets[0].data = llama.map(p => p.requests_processing||0);
+    charts.llamaReqs.data.datasets[1].data = llama.map(p => p.requests_deferred||0);
+    charts.llamaReqs.update('none');
   }
 
   $('statusSamples').textContent = 'Samples: '+(hist.total_records||0);
