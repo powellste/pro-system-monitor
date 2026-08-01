@@ -1110,7 +1110,7 @@ function renderFrigate(d) {
   }
   if (badge) { badge.textContent = d.cameras.length+' cams'; badge.style.color = 'var(--success)'; }
   const camHtml = Array.isArray(d.cameras) && d.cameras.length > 0
-    ? d.cameras.map(c => `<div class="iface-item"><div class="iface-name">📹 ${c.name}</div><div class="iface-stat"><span>FPS</span><span class="val">${c.fps}</span></div><div class="iface-stat"><span>Detection</span><span class="val" style="color:${c.detection_fps > 0 ? 'var(--warning)' : 'var(--text-2)'}">${c.detection_fps} fps</span></div></div>`).join('')
+    ? d.cameras.map(c => `<div class="iface-item"><div class="iface-name">📹 ${c.name}</div><div class="iface-stat"><span>FPS</span><span class="val">${c.fps}</span></div><div class="iface-stat"><span>Detection</span><span class="val" style="color:${c.detection_enabled === false ? 'var(--text-3)' : (c.detection_fps > 0 ? 'var(--warning)' : 'var(--text-2)')}">${c.detection_enabled === false ? 'off' : c.detection_fps + ' fps'}</span></div></div>`).join('')
     : '<div style="color:var(--text-3);font-size:.75rem">No cameras detected</div>';
   body.innerHTML = `<div class="llama-online"><span class="dot online"></span> Frigate NVR</div>
     <div class="iface-grid" style="margin-top:8px">${camHtml}</div>`;

@@ -815,22 +815,67 @@ _frigate_cache = None
 _frigate_cache_time = 0
 
 def _collect_frigate():
-    """Query Frigate NVR for camera status and detection stats."""
+    """Query Frigate NVR for camera status and detection stats (Frigate 0.17+)."""
     global _frigate_cache, _frigate_cache_time
     now = time.time()
     if now - _frigate_cache_time < 30:
         return _frigate_cache
     result = {'alive': False, 'cameras': [], 'detection_count': 0}
-    # Try multiple ports / protocols
-    for url_base in ['http://localhost:5000', 'https://localhost:8971']:
+    # Frigate 0.17: /api/stats requires auth (login -> cookie -> stats)
+    frigate_pass = os.environ.get('FRIGATE_PASSWORD', '')
+    for url_base in ['https://localhost:8971', 'http://localhost:5000']:
         try:
-            r = urllib.request.urlopen(url_base + '/api/version', timeout=3)
+            import http.cookiejar
+            import ssl
+            import urllib.request as _ur
+            jar = http.cookiejar.CookieJar()
+            opener = _ur.build_opener(_ur.HTTPCookieProcessor(jar))
+            ctx = ssl.create_default_context()
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl.CERT_NONE
+            if url_base.startswith('https'):
+                opener = _ur.build_opener(
+                    _ur.HTTPCookieProcessor(jar),
+                    _ur.HTTPSHandler(context=ctx),
+                )
+            # login first (Frigate 0.17 requires auth for /api/*, incl. /api/version)
+            if frigate_pass:
+                try:
+                    body = json.dumps({'user': 'admin', 'password': frigate_pass}).encode()
+                    req = _ur.Request(
+                        url_base + '/api/login',
+                        data=body,
+                        headers={'Content-Type': 'application/json', 'X-CSRF-TOKEN': '1'},
+                        method='POST',
+                    )
+                    opener.open(req, timeout=5)
+                except Exception:
+                    pass  # cookie may still work / stats may be open
+            # version probe
+            r = opener.open(url_base + '/api/version', timeout=3)
             result['alive'] = (r.status == 200)
             if not result['alive']:
                 continue
-            r2 = urllib.request.urlopen(url_base + '/api/stats', timeout=3)
+            r2 = opener.open(url_base + '/api/stats', timeout=5)
             stats = json.loads(r2.read())
-            if isinstance(stats, dict):
+            if isinstance(stats, dict) and isinstance(stats.get('cameras'), dict):
+                # Frigate 0.17 format: {"cameras": {"garage": {...}}, "detectors": {...}}
+                cameras = []
+                for name, data in stats['cameras'].items():
+                    cameras.append({
+                        'name': name,
+                        'fps': data.get('camera_fps', 0),
+                        'detection_fps': data.get('detection_fps', 0),
+                        'detection_enabled': data.get('detection_enabled', True),
+                        'audio_rms': data.get('audio_rms', 0),
+                        'audio_db': data.get('audio_dBFS', 0),
+                    })
+                    if data.get('detection_fps', 0) > 0:
+                        result['detection_count'] += 1
+                result['cameras'] = cameras
+                break  # success on this URL
+            elif isinstance(stats, dict):
+                # legacy format (pre-0.13): camera_* keys at top level
                 cameras = []
                 for name, data in stats.items():
                     if name.startswith('camera_') or (isinstance(data, dict) and 'camera_fps' in data):
@@ -839,6 +884,7 @@ def _collect_frigate():
                             'name': cam_name,
                             'fps': data.get('camera_fps', 0),
                             'detection_fps': data.get('detection_fps', 0),
+                            'detection_enabled': data.get('detection_enabled', True),
                             'audio_rms': data.get('audio_rms', 0),
                             'audio_db': data.get('audio_db', 0),
                         })
