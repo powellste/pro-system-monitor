@@ -99,6 +99,13 @@
     .card:hover{border-color:var(--primary)}
     .card-full{grid-column:1/-1}
     .card-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;gap:8px;flex-wrap:wrap}
+    .card-header .drag-handle{cursor:grab;color:var(--text-3);padding:0 6px;font-size:1.05rem;letter-spacing:1px;line-height:1;user-select:none;-webkit-user-select:none;border-radius:6px;flex-shrink:0;touch-action:none}
+    .card-header .drag-handle:hover{color:var(--text);background:var(--surface-3)}
+    .card-header .drag-handle:active{cursor:grabbing}
+    .card.dragging{opacity:.4;outline:2px dashed var(--primary);outline-offset:3px}
+    .card.drop-before{border-top:3px solid var(--primary)}
+    .card.drop-after{border-bottom:3px solid var(--primary)}
+    .card.drop-before,.card.drop-after{transition:border-color .1s}
     .card-title{font-size:.95rem;font-weight:600;display:flex;align-items:center;gap:8px}
     .card-badge{font-size:.7rem;padding:2px 8px;border-radius:99px;background:var(--surface-3);color:var(--text-2)}
 
@@ -262,6 +269,7 @@
       <button class="btn btn-icon" onclick="toggleTheme()" title="Toggle Theme">🌓</button>
       <button class="btn btn-icon" onclick="exportData()" title="Export JSON">📥</button>
       <button class="btn btn-icon" onclick="exportCsv()" title="Export CSV">📊</button>
+      <button class="btn btn-sm" onclick="resetLayout()" title="Restore default section order">⇚ Reset layout</button>
       <button class="btn btn-primary" onclick="fetchAll()" title="Refresh now"><span>🔄</span><span> Refresh</span></button>
     </div>
   </header>
@@ -287,7 +295,7 @@
 
     <!-- CPU Card -->
     <div class="card" id="cpu-card">
-      <div class="card-header">
+      <div class="card-header"><span class="drag-handle" draggable="true" title="Drag to reorder">⋮⋮</span>
         <span class="card-title">🔥 CPU</span>
         <span class="card-badge" id="cpu-badge">--</span>
       </div>
@@ -312,8 +320,8 @@
     </div>
 
     <!-- RAM Card -->
-    <div class="card">
-      <div class="card-header">
+    <div class="card" id="ram-card">
+      <div class="card-header"><span class="drag-handle" draggable="true" title="Drag to reorder">⋮⋮</span>
         <span class="card-title">💾 RAM</span>
         <span class="card-badge" id="ram-badge">--</span>
       </div>
@@ -336,8 +344,8 @@
     </div>
 
     <!-- Disk Card -->
-    <div class="card">
-      <div class="card-header">
+    <div class="card" id="storage-card">
+      <div class="card-header"><span class="drag-handle" draggable="true" title="Drag to reorder">⋮⋮</span>
         <span class="card-title">💿 Storage</span>
         <span class="card-badge" id="disk-badge">--</span>
       </div>
@@ -358,8 +366,8 @@
     </div>
 
     <!-- Network Card -->
-    <div class="card">
-      <div class="card-header">
+    <div class="card" id="network-card">
+      <div class="card-header"><span class="drag-handle" draggable="true" title="Drag to reorder">⋮⋮</span>
         <span class="card-title">🌐 Network</span>
         <span class="card-badge" id="net-badge">--</span>
       </div>
@@ -378,8 +386,8 @@
     </div>
 
     <!-- Disk I/O Card -->
-    <div class="card">
-      <div class="card-header">
+    <div class="card" id="diskio-card">
+      <div class="card-header"><span class="drag-handle" draggable="true" title="Drag to reorder">⋮⋮</span>
         <span class="card-title">💽 Disk I/O</span>
         <span class="card-badge">throughput</span>
       </div>
@@ -397,8 +405,8 @@
     </div>
 
     <!-- CPU Usage History Card -->
-    <div class="card">
-      <div class="card-header">
+    <div class="card" id="cpuhistory-card">
+      <div class="card-header"><span class="drag-handle" draggable="true" title="Drag to reorder">⋮⋮</span>
         <span class="card-title">📈 CPU Load History</span>
         <span class="card-badge">history</span>
       </div>
@@ -415,7 +423,7 @@
 
   <!-- GPU SECTION -->
   <div class="card card-full" id="gpu-card" style="margin-top:16px;display:none">
-    <div class="card-header">
+    <div class="card-header"><span class="drag-handle" draggable="true" title="Drag to reorder">⋮⋮</span>
       <span class="card-title">🎮 GPU</span>
       <span class="card-badge" id="gpu-badge">--</span>
     </div>
@@ -435,7 +443,7 @@
 
   <!-- GPU Frequency Card (separate chart) -->
   <div class="card card-full" id="gpu-freq-card" style="margin-top:16px;display:none">
-    <div class="card-header">
+    <div class="card-header"><span class="drag-handle" draggable="true" title="Drag to reorder">⋮⋮</span>
       <span class="card-title">🎮 GPU Core Clock & Fan Curve</span>
       <span class="card-badge" id="gpu-freq-badge">-- MHz</span>
     </div>
@@ -451,7 +459,7 @@
 
   <!-- THERMAL & FANS CARD -->
   <div class="card card-full" style="margin-top:16px" id="thermal-card">
-    <div class="card-header">
+    <div class="card-header"><span class="drag-handle" draggable="true" title="Drag to reorder">⋮⋮</span>
       <span class="card-title">🌡️ Thermal & Fans</span>
       <span class="card-badge" id="thermal-badge">—</span>
     </div>
@@ -462,7 +470,7 @@
 
   <!-- LLAMA SERVER CARD -->
   <div class="card card-full" style="margin-top:16px" id="llama-card">
-    <div class="card-header">
+    <div class="card-header"><span class="drag-handle" draggable="true" title="Drag to reorder">⋮⋮</span>
       <span class="card-title">🧠 LLM Server (llama)</span>
       <span class="card-badge" id="llama-badge">offline</span>
     </div>
@@ -481,7 +489,7 @@
 
   <!-- DOCKER CONTAINERS CARD -->
   <div class="card card-full" style="margin-top:16px" id="docker-card">
-    <div class="card-header">
+    <div class="card-header"><span class="drag-handle" draggable="true" title="Drag to reorder">⋮⋮</span>
       <span class="card-title">🐳 Docker Containers</span>
       <span class="card-badge" id="docker-badge">0</span>
     </div>
@@ -490,7 +498,7 @@
 
   <!-- TRADING ENGINE CARD -->
   <div class="card card-full" style="margin-top:16px" id="trading-card">
-    <div class="card-header">
+    <div class="card-header"><span class="drag-handle" draggable="true" title="Drag to reorder">⋮⋮</span>
       <span class="card-title">📈 Trading Engine</span>
       <span class="card-badge" id="trading-badge">offline</span>
     </div>
@@ -501,7 +509,7 @@
 
   <!-- SYSTEMD SERVICES CARD -->
   <div class="card card-full" style="margin-top:16px" id="systemd-card">
-    <div class="card-header">
+    <div class="card-header"><span class="drag-handle" draggable="true" title="Drag to reorder">⋮⋮</span>
       <span class="card-title">⚙️ Services</span>
       <span class="card-badge" id="systemd-badge">0</span>
     </div>
@@ -512,7 +520,7 @@
 
   <!-- FRIGATE CARD -->
   <div class="card card-full" style="margin-top:16px" id="frigate-card">
-    <div class="card-header">
+    <div class="card-header"><span class="drag-handle" draggable="true" title="Drag to reorder">⋮⋮</span>
       <span class="card-title">📹 Frigate NVR</span>
       <span class="card-badge" id="frigate-badge">offline</span>
     </div>
@@ -523,7 +531,7 @@
 
   <!-- SWAP PRESSURE HISTORY CARD -->
   <div class="card card-full" style="margin-top:16px" id="swap-card">
-    <div class="card-header">
+    <div class="card-header"><span class="drag-handle" draggable="true" title="Drag to reorder">⋮⋮</span>
       <span class="card-title">💽 Swap Pressure</span>
       <span class="card-badge">history</span>
     </div>
@@ -538,7 +546,7 @@
 
   <!-- NETWORK ERRORS/DROPS CARD -->
   <div class="card card-full" style="margin-top:16px" id="net-errors-card">
-    <div class="card-header">
+    <div class="card-header"><span class="drag-handle" draggable="true" title="Drag to reorder">⋮⋮</span>
       <span class="card-title">🌐 Net Errors/Drops</span>
       <span class="card-badge">cumulative</span>
     </div>
@@ -553,7 +561,7 @@
 
   <!-- PINNED PROCESSES CARD -->
   <div class="card card-full" style="margin-top:16px" id="pinned-card">
-    <div class="card-header">
+    <div class="card-header"><span class="drag-handle" draggable="true" title="Drag to reorder">⋮⋮</span>
       <span class="card-title">📌 Pinned Processes</span>
       <span class="card-badge">tracked</span>
     </div>
@@ -561,8 +569,8 @@
   </div>
 
   <!-- PROCESSES SECTION -->
-  <div class="card card-full" style="margin-top:16px">
-    <div class="card-header">
+  <div class="card card-full" style="margin-top:16px" id="processes-card">
+    <div class="card-header"><span class="drag-handle" draggable="true" title="Drag to reorder">⋮⋮</span>
       <span class="card-title">⚙️ Top Processes</span>
       <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
         <input type="text" id="procSearch" placeholder="Filter..." style="background:var(--surface-2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:4px 8px;font-size:.75rem;width:120px" oninput="filterProcs()">
@@ -581,7 +589,7 @@
   
   <!-- ALERTS SECTION -->
   <div class="card card-full" style="margin-top:16px" id="alerts-card">
-    <div class="card-header">
+    <div class="card-header"><span class="drag-handle" draggable="true" title="Drag to reorder">⋮⋮</span>
       <span class="card-title">🔔 Alerts</span>
       <span class="card-badge" id="alert-count">0</span>
     </div>
@@ -590,7 +598,7 @@
 
   <!-- ALERT HISTORY -->
   <div class="card card-full" style="margin-top:16px" id="alert-history-card">
-    <div class="card-header">
+    <div class="card-header"><span class="drag-handle" draggable="true" title="Drag to reorder">⋮⋮</span>
       <span class="card-title">📜 Alert History</span>
       <span class="card-badge" id="alert-history-count">0</span>
     </div>
@@ -1775,7 +1783,178 @@ function updateChartFromMetric(){
   });
 }
 
+// ===== REORDERABLE SECTIONS (drag + localStorage persistence) =====
+// Top-level dashboard cards live in two sibling groups: the half-width cards
+// inside `.grid`, and the full-width `.card-full` cards that are direct
+// children of `.app`. Reordering only ever moves a card within its own group,
+// so the existing grid layout is preserved. The persisted order is a single
+// flat array of all card ids (document order); applying it filters per group.
+const REORDER_KEY = 'hwmon_section_order';
+const REORDER_SELECTOR = '.grid > .card, .app > .card';
+let defaultSectionOrder = [];
+
+function topLevelSections() {
+  return Array.from(document.querySelectorAll(REORDER_SELECTOR)).filter(c => c.id);
+}
+function nextElementSibling(el) {
+  let s = el.nextSibling;
+  while (s && s.nodeType !== 1) s = s.nextSibling;
+  return s;
+}
+function captureDefaultOrder() {
+  defaultSectionOrder = topLevelSections().map(c => c.id);
+}
+function storedSectionOrder() {
+  try {
+    const raw = localStorage.getItem(REORDER_KEY);
+    if (!raw) return null;
+    const arr = JSON.parse(raw);
+    if (!Array.isArray(arr)) return null;
+    return arr.filter(x => typeof x === 'string');
+  } catch (e) { return null; }
+}
+function persistSectionOrder() {
+  try {
+    localStorage.setItem(REORDER_KEY, JSON.stringify(topLevelSections().map(c => c.id)));
+  } catch (e) { console.warn('Could not save section order:', e); }
+}
+function applyStoredOrder() {
+  const order = storedSectionOrder();
+  if (!order || order.length === 0) return;
+  const known = new Set(defaultSectionOrder);
+  const byId = new Map(topLevelSections().map(c => [c.id, c]));
+  // Group listed cards by their container, keeping the stored relative order.
+  const perContainer = new Map();
+  for (const id of order) {
+    if (!known.has(id)) continue;
+    const card = byId.get(id);
+    if (!card) continue;
+    const parent = card.parentElement;
+    if (!perContainer.has(parent)) perContainer.set(parent, []);
+    perContainer.get(parent).push(card);
+  }
+  for (const [parent, listed] of perContainer) {
+    const listedSet = new Set(listed);
+    // Cards not mentioned in the stored order keep their current DOM position.
+    const rest = Array.from(parent.children).filter(ch =>
+      ch.nodeType === 1 && ch.classList && ch.classList.contains('card') && ch.id && !listedSet.has(ch)
+    );
+    [...listed, ...rest].forEach(c => parent.appendChild(c));
+  }
+}
+function clearDropIndicators() {
+  document.querySelectorAll('.drop-before, .drop-after').forEach(el => el.classList.remove('drop-before', 'drop-after'));
+}
+function resetLayout() {
+  try { localStorage.removeItem(REORDER_KEY); } catch (e) {}
+  clearDropIndicators();
+  document.querySelectorAll('.card.dragging').forEach(el => el.classList.remove('dragging'));
+  const byId = new Map(topLevelSections().map(c => [c.id, c]));
+  const perContainer = new Map();
+  for (const id of defaultSectionOrder) {
+    const card = byId.get(id);
+    if (!card) continue;
+    const parent = card.parentElement;
+    if (!perContainer.has(parent)) perContainer.set(parent, []);
+    perContainer.get(parent).push(card);
+  }
+  for (const cards of perContainer.values()) {
+    cards.forEach(c => c.parentElement.appendChild(c));
+  }
+  toast('⇚ Layout reset to default order');
+}
+
+let dragSection = null;
+
+function initReorder() {
+  topLevelSections().forEach(card => {
+    const handle = card.querySelector('.card-header .drag-handle');
+    if (!handle) return;
+    handle.addEventListener('dragstart', e => {
+      dragSection = card;
+      card.classList.add('dragging');
+      e.dataTransfer.effectAllowed = 'move';
+      try {
+        e.dataTransfer.setData('text/plain', card.id);
+        e.dataTransfer.setDragImage(card, 24, 24);
+      } catch (err) {}
+    });
+    handle.addEventListener('dragend', () => {
+      dragSection = null;
+      clearDropIndicators();
+      card.classList.remove('dragging');
+    });
+    card.addEventListener('dragover', e => {
+      if (!dragSection || dragSection === card) return;
+      if (card.parentElement !== dragSection.parentElement) return; // same group only
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      const rect = card.getBoundingClientRect();
+      const after = (e.clientY - rect.top) > (rect.height / 2);
+      clearDropIndicators();
+      card.classList.add(after ? 'drop-after' : 'drop-before');
+    });
+    card.addEventListener('dragleave', e => {
+      if (card.contains(e.relatedTarget)) return;
+      card.classList.remove('drop-before', 'drop-after');
+    });
+    card.addEventListener('drop', e => {
+      e.preventDefault();
+      clearDropIndicators();
+      if (!dragSection || dragSection === card) return;
+      if (card.parentElement !== dragSection.parentElement) return; // same group only
+      const rect = card.getBoundingClientRect();
+      const after = (e.clientY - rect.top) > (rect.height / 2);
+      if (after) {
+        card.parentElement.insertBefore(dragSection, nextElementSibling(card) || null);
+      } else {
+        card.parentElement.insertBefore(dragSection, card);
+      }
+      persistSectionOrder();
+    });
+  });
+
+  // Container-level: allow dropping into the empty area below the last card.
+  ['.grid', '.app'].forEach(sel => {
+    const container = document.querySelector(sel);
+    if (!container) return;
+    container.addEventListener('dragover', e => {
+      if (!dragSection) return;
+      if (e.target !== container) return; // card-level handler owns card hovers
+      if (container !== dragSection.parentElement) return; // same group only
+      const cards = Array.from(container.children).filter(ch => ch.classList && ch.classList.contains('card'));
+      const lastCard = cards[cards.length - 1];
+      if (!lastCard || lastCard === dragSection) return;
+      const rect = lastCard.getBoundingClientRect();
+      if (e.clientY > rect.bottom) {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        clearDropIndicators();
+        lastCard.classList.add('drop-after');
+      }
+    });
+    container.addEventListener('drop', e => {
+      if (!dragSection) return;
+      if (container !== dragSection.parentElement) return; // same group only
+      const cards = Array.from(container.children).filter(ch => ch.classList && ch.classList.contains('card'));
+      const lastCard = cards[cards.length - 1];
+      if (!lastCard || lastCard === dragSection) return;
+      const rect = lastCard.getBoundingClientRect();
+      if (e.clientY > rect.bottom) {
+        e.preventDefault();
+        clearDropIndicators();
+        // Insert after the last card but before any trailing non-card siblings (e.g. status-bar).
+        container.insertBefore(dragSection, nextElementSibling(lastCard) || null);
+        persistSectionOrder();
+      }
+    });
+  });
+}
+
 // BOOT
+captureDefaultOrder();
+applyStoredOrder();
+initReorder();
 initCharts();
 fetchAll();
 // Setup time buttons
