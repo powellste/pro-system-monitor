@@ -1099,6 +1099,14 @@ def index():
                            api_key=API_KEY)
 
 
+@app.route('/review')
+def review_page():
+    """Review hub — gate proposals + kanban cards needing operator input."""
+    return render_template('review.html',
+                           refresh_interval=30,
+                           api_key=API_KEY)
+
+
 @app.route('/api/status')
 def get_status():
     live = request.args.get('live', '0') == '1'
@@ -1271,6 +1279,16 @@ def get_process_history():
     """Historical top-process snapshots."""
     with _collection_lock:
         return jsonify(list(H['process_snapshot']))
+
+
+# ---------------------------------------------------------------------------
+# Review hub routes (gate proposals + kanban cards)
+# ---------------------------------------------------------------------------
+try:
+    from review_routes import register_review_routes
+    register_review_routes(app)
+except Exception as _rev_exc:  # pragma: no cover — never take the monitor down
+    print(f"[MONITOR] review routes unavailable: {_rev_exc}")
 
 
 # ---------------------------------------------------------------------------

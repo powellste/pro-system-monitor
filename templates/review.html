@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Review Hub — Approvals &amp; Cards</title>
+  <style>
+    :root {
+      --bg: #0b0f1a; --surface: #131827; --surface-2: #1b2333; --surface-3: #232d42;
+      --border: #2a3548; --text: #e8edf5; --text-2: #94a3b8; --text-3: #64748b;
+      --primary: #3b82f6; --primary-dim: #1d4ed8; --success: #10b981;
+      --success-bg: rgba(16,185,129,.12); --warning: #f59e0b; --warning-bg: rgba(245,158,11,.12);
+      --danger: #ef4444; --danger-bg: rgba(239,68,68,.12); --info: #06b6d4;
+      --radius-sm: 8px; --radius: 12px; --radius-lg: 16px;
+      --shadow: 0 1px 3px rgba(0,0,0,.3), 0 1px 2px rgba(0,0,0,.2);
+    }
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    html{font-size:16px;-webkit-text-size-adjust:100%}
+    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Inter,Roboto,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;overflow-x:hidden;line-height:1.5}
+    a{color:var(--primary);text-decoration:none}
+    ::-webkit-scrollbar{width:6px;height:6px}
+    ::-webkit-scrollbar-track{background:transparent}
+    ::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
+    .app{max-width:1200px;margin:0 auto;padding:12px}
+    @media(min-width:768px){.app{padding:20px}}
+    .header{display:flex;flex-wrap:wrap;align-items:center;gap:12px;padding:14px 16px;background:var(--surface);border-radius:var(--radius-lg);border:1px solid var(--border);margin-bottom:16px;box-shadow:var(--shadow)}
+    .header h1{font-size:1.15rem;font-weight:700;background:linear-gradient(135deg,var(--primary),var(--info));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+    .header .sub{color:var(--text-3);font-size:.8rem}
+    .header .right{margin-left:auto;display:flex;gap:8px;align-items:center}
+    .btn{border:1px solid var(--border);background:var(--surface-2);color:var(--text);padding:6px 12px;border-radius:var(--radius-sm);font-size:.82rem;cursor:pointer;transition:background .15s}
+    .btn:hover{background:var(--surface-3)}
+    .btn-ok{border-color:transparent;background:var(--success);color:#052e1c;font-weight:600}
+    .btn-ok:hover{filter:brightness(1.1)}
+    .btn-warn{border-color:transparent;background:var(--warning);color:#3b2a05;font-weight:600}
+    .btn-warn:hover{filter:brightness(1.1)}
+    .btn-danger{border-color:transparent;background:var(--danger);color:#fff;font-weight:600}
+    .btn-danger:hover{filter:brightness(1.1)}
+    .btn:disabled{opacity:.5;cursor:not-allowed}
+    .card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:14px;margin-bottom:16px;box-shadow:var(--shadow)}
+    .card h2{font-size:.95rem;font-weight:600;margin-bottom:10px;display:flex;align-items:center;gap:8px}
+    .badge{background:var(--primary);color:#fff;font-size:.7rem;padding:2px 9px;border-radius:10px;font-weight:600}
+    .badge.warn{background:var(--warning);color:#3b2a05}
+    .item{background:var(--surface-2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px 12px;margin-bottom:8px}
+    .item:last-child{margin-bottom:0}
+    .item-head{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-bottom:4px}
+    .item-title{font-weight:600;font-size:.88rem}
+    .tag{font-size:.68rem;padding:2px 8px;border-radius:10px;background:var(--surface-3);color:var(--text-2)}
+    .tag.p0{background:var(--danger-bg);color:var(--danger)}
+    .tag.p1{background:var(--warning-bg);color:var(--warning)}
+    .tag.high{background:var(--danger-bg);color:var(--danger)}
+    .tag.med{background:var(--warning-bg);color:var(--warning)}
+    .item-body{color:var(--text-2);font-size:.8rem;margin:4px 0 8px;white-space:pre-wrap;word-break:break-word;max-height:96px;overflow-y:auto}
+    .item-actions{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+    .item-actions input[type=text]{background:var(--surface);border:1px solid var(--border);color:var(--text);border-radius:var(--radius-sm);padding:5px 9px;font-size:.78rem;min-width:0;flex:1 1 160px}
+    .item-actions .reason-box{display:none;width:100%;margin-top:6px}
+    .muted{color:var(--text-3);font-size:.75rem}
+    .empty{color:var(--text-3);font-size:.82rem;padding:10px;text-align:center}
+    .flash{position:fixed;bottom:16px;right:16px;left:16px;max-width:480px;margin:0 auto;background:var(--surface-3);border:1px solid var(--success);color:var(--text);padding:12px 16px;border-radius:var(--radius);font-size:.85rem;box-shadow:var(--shadow);opacity:0;transform:translateY(20px);transition:all .25s;z-index:99;pointer-events:none}
+    .flash.show{opacity:1;transform:translateY(0)}
+    .flash.err{border-color:var(--danger)}
+    .statusbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;font-size:.75rem;color:var(--text-3)}
+    .statusbar .dot{width:8px;height:8px;border-radius:50%;background:var(--success);display:inline-block}
+    .statusbar .dot.err{background:var(--danger)}
+    .statusbar .dot.warn{background:var(--warning)}
+    .grid2{display:grid;grid-template-columns:1fr;gap:16px}
+    @media(min-width:900px){.grid2{grid-template-columns:1fr 1fr}}
+  </style>
+</head>
+<body>
+<div class="app">
+  <div class="header">
+    <div>
+      <h1>Review Hub</h1>
+      <div class="sub">Gate proposals · cards needing your input · instructions</div>
+    </div>
+    <div class="right">
+      <span class="statusbar" id="statusbar"><span class="dot" id="statusdot"></span><span id="statustext">Loading…</span></span>
+      <button class="btn" onclick="RV.refresh()">⟳ Refresh</button>
+      <a class="btn" href="/">← Monitor</a>
+    </div>
+  </div>
+
+  <!-- Gate proposals -->
+  <div class="card">
+    <h2>🎯 Gate Proposals <span class="badge warn" id="gateCount">0</span></h2>
+    <div id="gateList"><div class="empty">Loading proposals…</div></div>
+  </div>
+
+  <!-- Cards blocked -->
+  <div class="card">
+    <h2>📋 Cards Blocked — review required <span class="badge" id="blockedCount">0</span></h2>
+    <div id="blockedList"><div class="empty">Loading cards…</div></div>
+  </div>
+
+  <div class="grid2">
+    <!-- In flight -->
+    <div class="card">
+      <h2>▶ In Flight <span class="badge" id="runningCount">0</span></h2>
+      <div id="runningList"><div class="empty">Loading…</div></div>
+    </div>
+    <!-- Ready / backlog -->
+    <div class="card">
+      <h2>⏳ Ready / Backlog <span class="badge" id="readyCount">0</span></h2>
+      <div id="readyList"><div class="empty">Loading…</div></div>
+    </div>
+  </div>
+</div>
+
+<div class="flash" id="flash"></div>
+
+<script>
+var API_KEY = {{ api_key|tojson }};
+function apiHeaders(){ return {'Content-Type':'application/json','X-API-Key': API_KEY}; }
+function esc(s){ if(s==null) return ''; return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function prioClass(p){ p = String(p||''); if(p==='0') return 'p0'; if(p==='1') return 'p1'; return ''; }
+
+var RV = {
+  data: null,
+  refresh: function(){
+    fetch('/api/review/overview', {headers: {'X-API-Key': API_KEY}})
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        RV.data = d;
+        RV.render();
+        RV.setStatus('ok', 'Updated ' + new Date().toLocaleTimeString());
+      })
+      .catch(function(e){ RV.setStatus('err', 'Load failed: ' + e); });
+  },
+  setStatus: function(state, text){
+    var dot = document.getElementById('statusdot');
+    dot.className = 'dot' + (state==='err' ? ' err' : (state==='warn' ? ' warn' : ''));
+    document.getElementById('statustext').textContent = text;
+  },
+  flash: function(msg, isErr){
+    var el = document.getElementById('flash');
+    el.textContent = msg;
+    el.className = 'flash show' + (isErr ? ' err' : '');
+    setTimeout(function(){ el.className = 'flash'; }, 3200);
+  },
+  render: function(){
+    RV.renderGate(RV.data.gate || []);
+    RV.renderBlocked(RV.data.blocked || []);
+    RV.renderList('running', RV.data.running || [], true);
+    RV.renderList('ready', RV.data.ready || [], true);
+  },
+  renderGate: function(items){
+    document.getElementById('gateCount').textContent = items.length;
+    var box = document.getElementById('gateList');
+    if(!items.length){ box.innerHTML = '<div class="empty">No proposals awaiting your decision ✓</div>'; return; }
+    var html = '';
+    items.forEach(function(p){
+      html += '<div class="item">'
+        + '<div class="item-head"><span class="item-title">' + esc(p.title) + '</span>'
+        + '<span class="tag">' + esc(p.path || '') + '</span>'
+        + (p.score ? '<span class="tag">score ' + esc(p.score) + '</span>' : '')
+        + '</div>'
+        + '<div class="item-body">' + esc(p.body.slice(0,220)) + (p.body.length>220?'…':'') + '</div>'
+        + '<div class="item-actions">'
+        + '<button class="btn btn-ok" onclick="RV.gateApprove(\'' + esc(p.slug) + '\')">✓ Approve</button>'
+        + '<button class="btn btn-warn" onclick="RV.toggleShelve(this)">Shelve</button>'
+        + '<button class="btn" onclick="RV.toggleModify(this)">Modify</button>'
+        + '<div class="reason-box">'
+        + '<input type="text" placeholder="Reason for shelving…" data-kind="shelve">'
+        + '<input type="text" placeholder="Change requested…" data-kind="modify" style="display:none">'
+        + '<button class="btn btn-warn" data-kind="shelve" onclick="RV.gateShelve(this,\'' + esc(p.slug) + '\')">Confirm shelve</button>'
+        + '<button class="btn" data-kind="modify" onclick="RV.gateModify(this,\'' + esc(p.slug) + '\')" style="display:none">Confirm modify</button>'
+        + '</div>'
+        + '</div></div>';
+    });
+    box.innerHTML = html;
+  },
+  toggleShelve: function(btn){
+    var box = btn.parentNode.querySelector('.reason-box');
+    box.style.display = 'block';
+    box.querySelector('[data-kind=shelve]').style.display = 'inline-block';
+    box.querySelector('[data-kind=modify]').style.display = 'none';
+    box.querySelector('[data-kind=shelve]').style.display = 'inline-block';
+  },
+  toggleModify: function(btn){
+    var box = btn.parentNode.querySelector('.reason-box');
+    box.style.display = 'block';
+    box.querySelector('[data-kind=shelve]').style.display = 'none';
+    box.querySelector('[data-kind=modify]').style.display = 'inline-block';
+  },
+  gateApprove: function(slug){
+    fetch('/api/review/gate/approve', {method:'POST', headers: apiHeaders(), body: JSON.stringify({slug: slug})})
+      .then(function(r){ return r.json(); })
+      .then(function(d){ RV.flash(d.ok ? 'Approved ✓' : ('Failed: ' + (d.stderr||d.error||'?')), !d.ok); if(d.ok) RV.refresh(); })
+      .catch(function(e){ RV.flash('Error: ' + e, true); });
+  },
+  gateShelve: function(btn, slug){
+    var box = btn.parentNode;
+    var reason = box.querySelector('[data-kind=shelve]').value;
+    fetch('/api/review/gate/shelve', {method:'POST', headers: apiHeaders(), body: JSON.stringify({slug: slug, reason: reason})})
+      .then(function(r){ return r.json(); })
+      .then(function(d){ RV.flash(d.ok ? 'Shelved' : ('Failed: ' + (d.stderr||d.error||'?')), !d.ok); if(d.ok) RV.refresh(); })
+      .catch(function(e){ RV.flash('Error: ' + e, true); });
+  },
+  gateModify: function(btn, slug){
+    var box = btn.parentNode;
+    var change = box.querySelector('[data-kind=modify]').value;
+    fetch('/api/review/gate/modify', {method:'POST', headers: apiHeaders(), body: JSON.stringify({slug: slug, change: change})})
+      .then(function(r){ return r.json(); })
+      .then(function(d){ RV.flash(d.ok ? 'Modify sent' : ('Failed: ' + (d.stderr||d.error||'?')), !d.ok); if(d.ok) RV.refresh(); })
+      .catch(function(e){ RV.flash('Error: ' + e, true); });
+  },
+  renderBlocked: function(items){
+    document.getElementById('blockedCount').textContent = items.length;
+    var box = document.getElementById('blockedList');
+    if(!items.length){ box.innerHTML = '<div class="empty">No blocked cards ✓</div>'; return; }
+    var html = '';
+    items.forEach(function(c){
+      html += '<div class="item">'
+        + '<div class="item-head"><span class="item-title">' + esc(c.title) + '</span>'
+        + '<span class="tag ' + prioClass(c.priority) + '">P' + esc(c.priority) + '</span>'
+        + '<span class="tag">' + esc(c.assignee || '?') + '</span>'
+        + '<span class="tag">' + esc(c.id) + '</span></div>'
+        + (c.block_reason ? '<div class="item-body">🚫 ' + esc(c.block_reason) + '</div>' : '')
+        + (c.last_comment ? '<div class="muted">💬 ' + esc(c.last_comment) + '</div>' : '')
+        + '<div class="item-actions">'
+        + '<button class="btn btn-ok" onclick="RV.cardUnblock(\'' + esc(c.id) + '\')">✓ Approve / Unblock</button>'
+        + '<button class="btn" onclick="RV.toggleInstruct(this)">✎ Instructions</button>'
+        + '<div class="reason-box">'
+        + '<input type="text" placeholder="Your instruction to the worker…">'
+        + '<button class="btn" onclick="RV.cardComment(this,\'' + esc(c.id) + '\')">Send instruction</button>'
+        + '</div></div></div>';
+    });
+    box.innerHTML = html;
+  },
+  toggleInstruct: function(btn){
+    var box = btn.parentNode.querySelector('.reason-box');
+    box.style.display = 'block';
+  },
+  cardUnblock: function(id){
+    fetch('/api/review/cards/unblock', {method:'POST', headers: apiHeaders(), body: JSON.stringify({task_id: id, reason: 'approved via Review Hub'})})
+      .then(function(r){ return r.json(); })
+      .then(function(d){ RV.flash(d.ok ? 'Unblocked ✓' : ('Failed: ' + (d.stderr||'?')), !d.ok); if(d.ok) RV.refresh(); })
+      .catch(function(e){ RV.flash('Error: ' + e, true); });
+  },
+  cardComment: function(btn, id){
+    var box = btn.parentNode;
+    var text = box.querySelector('input[type=text]').value;
+    if(!text){ RV.flash('Type an instruction first', true); return; }
+    fetch('/api/review/cards/comment', {method:'POST', headers: apiHeaders(), body: JSON.stringify({task_id: id, text: text})})
+      .then(function(r){ return r.json(); })
+      .then(function(d){ RV.flash(d.ok ? 'Instruction sent ✓' : ('Failed: ' + (d.stderr||'?')), !d.ok); if(d.ok) RV.refresh(); })
+      .catch(function(e){ RV.flash('Error: ' + e, true); });
+  },
+  renderList: function(kind, items, compact){
+    document.getElementById(kind + 'Count').textContent = items.length;
+    var box = document.getElementById(kind + 'List');
+    if(!items.length){ box.innerHTML = '<div class="empty">None</div>'; return; }
+    var html = '';
+    items.forEach(function(c){
+      html += '<div class="item"><div class="item-head"><span class="item-title">' + esc(c.title) + '</span>'
+        + '<span class="tag ' + prioClass(c.priority) + '">P' + esc(c.priority) + '</span>'
+        + '<span class="tag">' + esc(c.assignee || '?') + '</span></div>'
+        + '<div class="muted">' + esc(c.id) + ' · ' + esc(c.status) + '</div></div>';
+    });
+    box.innerHTML = html;
+  }
+};
+
+RV.refresh();
+setInterval(function(){ RV.refresh(); }, 30000);
+</script>
+</body>
+</html>
