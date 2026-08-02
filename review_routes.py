@@ -75,7 +75,7 @@ def _read_proposal_md(path: Path) -> Optional[Dict[str, Any]]:
         "path": fm.get("path", ""),
         "score": fm.get("score", ""),
         "first_seen": fm.get("first_seen", ""),
-        "body": body[:600],
+        "body": body,
         "mtime": path.stat().st_mtime,
         "file": path.name,
     }
@@ -121,6 +121,25 @@ def _card_last_comment(card_id: str) -> str:
         return str(rows[0]["payload"])[:300]
 
 
+def _card_comments(card_id: str, limit: int = 15) -> List[Dict[str, str]]:
+    rows = _kanban_query(
+        "SELECT payload, created_at FROM task_events WHERE task_id=? AND kind='comment' "
+        "ORDER BY id DESC LIMIT ?",
+        (card_id, limit),
+    )
+    out = []
+    for r in rows:
+        try:
+            p = json.loads(r["payload"])
+            body = p.get("body") or ""
+        except (json.JSONDecodeError, AttributeError):
+            body = str(r["payload"])
+        author = p.get("author") if isinstance(p, dict) else None
+        out.append({"author": author or "?", "body": body,
+                    "created_at": r.get("created_at") or ""})
+    return out
+
+
 def _card_block_reason(card_id: str) -> str:
     rows = _kanban_query(
         "SELECT payload FROM task_events WHERE task_id=? AND kind='blocked' "
@@ -131,9 +150,9 @@ def _card_block_reason(card_id: str) -> str:
         return ""
     try:
         p = json.loads(rows[0]["payload"])
-        return (p.get("reason") or "")[:400]
+        return (p.get("reason") or "")[:2000]
     except (json.JSONDecodeError, AttributeError):
-        return str(rows[0]["payload"])[:400]
+        return str(rows[0]["payload"])[:2000]
 
 
 def _run_workflow(verb: str, args: List[str]) -> Dict[str, Any]:
@@ -169,7 +188,7 @@ def register_review_routes(app) -> None:
 
         blocked = _kanban_query(
             "SELECT id, title, assignee, priority, status, block_kind, "
-            "last_failure_error, created_at FROM tasks WHERE status='blocked' "
+            "last_failure_error, body, created_at FROM tasks WHERE status='blocked' "
             "ORDER BY priority DESC LIMIT 40",
         )
         for c in blocked:
@@ -246,3 +265,24 @@ def register_review_routes(app) -> None:
             return jsonify({"ok": False, "error": "task_id required"}), 400
         args = [card_id] + (["--summary", summary] if summary else [])
         return jsonify(_run_kanban(["complete"] + args))
+
+    @app.get("/api/review/cards/detail")
+    def review_card_detail():
+        card_id = (request.args.get("task_id") or request.args.get("card_id") or "").strip()
+        if not card_id:
+            return jsonify({"ok": False, "error": "task_id required"}), 400
+        rows = _kanban_query(
+            "SELECT id, title, assignee, priority, status, block_kind, "
+            "last_failure_error, body, created_at FROM tasks WHERE id=?",
+            (card_id,),
+        )
+        if not rows:
+            return jsonify({"ok": False, "error": "card not found"}), 404
+        c = rows[0]
+        c["last_comment"] = _card_last_comment(c["id"])
+        c["block_reason"] = (
+            _card_block_reason(c["id"])
+            or (c.pop("last_failure_error", "") or "")
+        )
+        c["comments"] = _card_comments(card_id)
+        return jsonify({"ok": True, "card": c})

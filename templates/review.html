@@ -16,7 +16,7 @@
     }
     *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
     html{font-size:16px;-webkit-text-size-adjust:100%}
-    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Inter,Roboto,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;overflow-x:hidden;line-height:1.5}
+    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Inter,Roboto,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;overflow-x:hidden;line-height:1.55}
     a{color:var(--primary);text-decoration:none}
     ::-webkit-scrollbar{width:6px;height:6px}
     ::-webkit-scrollbar-track{background:transparent}
@@ -27,7 +27,7 @@
     .header h1{font-size:1.15rem;font-weight:700;background:linear-gradient(135deg,var(--primary),var(--info));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
     .header .sub{color:var(--text-3);font-size:.8rem}
     .header .right{margin-left:auto;display:flex;gap:8px;align-items:center}
-    .btn{border:1px solid var(--border);background:var(--surface-2);color:var(--text);padding:6px 12px;border-radius:var(--radius-sm);font-size:.82rem;cursor:pointer;transition:background .15s}
+    .btn{border:1px solid var(--border);background:var(--surface-2);color:var(--text);padding:7px 13px;border-radius:var(--radius-sm);font-size:.84rem;cursor:pointer;transition:background .15s}
     .btn:hover{background:var(--surface-3)}
     .btn-ok{border-color:transparent;background:var(--success);color:#052e1c;font-weight:600}
     .btn-ok:hover{filter:brightness(1.1)}
@@ -36,6 +36,8 @@
     .btn-danger{border-color:transparent;background:var(--danger);color:#fff;font-weight:600}
     .btn-danger:hover{filter:brightness(1.1)}
     .btn:disabled{opacity:.5;cursor:not-allowed}
+    .btn-link{background:transparent;border-color:transparent;color:var(--primary);padding:2px 6px;font-size:.8rem;cursor:pointer}
+    .btn-link:hover{background:var(--surface-3);border-radius:6px}
     .card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:14px;margin-bottom:16px;box-shadow:var(--shadow)}
     .card h2{font-size:.95rem;font-weight:600;margin-bottom:10px;display:flex;align-items:center;gap:8px}
     .badge{background:var(--primary);color:#fff;font-size:.7rem;padding:2px 9px;border-radius:10px;font-weight:600}
@@ -43,16 +45,20 @@
     .item{background:var(--surface-2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px 12px;margin-bottom:8px}
     .item:last-child{margin-bottom:0}
     .item-head{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-bottom:4px}
-    .item-title{font-weight:600;font-size:.88rem}
-    .tag{font-size:.68rem;padding:2px 8px;border-radius:10px;background:var(--surface-3);color:var(--text-2)}
+    .item-title{font-weight:600;font-size:.9rem;flex:1 1 auto;min-width:0}
+    .tag{font-size:.68rem;padding:2px 8px;border-radius:10px;background:var(--surface-3);color:var(--text-2);white-space:nowrap}
     .tag.p0{background:var(--danger-bg);color:var(--danger)}
     .tag.p1{background:var(--warning-bg);color:var(--warning)}
     .tag.high{background:var(--danger-bg);color:var(--danger)}
     .tag.med{background:var(--warning-bg);color:var(--warning)}
-    .item-body{color:var(--text-2);font-size:.8rem;margin:4px 0 8px;white-space:pre-wrap;word-break:break-word;max-height:96px;overflow-y:auto}
+    .item-body{color:var(--text-2);font-size:.84rem;margin:4px 0 8px;white-space:pre-wrap;word-break:break-word}
+    .item-body.clamped{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
     .item-actions{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
-    .item-actions input[type=text]{background:var(--surface);border:1px solid var(--border);color:var(--text);border-radius:var(--radius-sm);padding:5px 9px;font-size:.78rem;min-width:0;flex:1 1 160px}
+    .item-actions input[type=text]{background:var(--surface);border:1px solid var(--border);color:var(--text);border-radius:var(--radius-sm);padding:6px 10px;font-size:.82rem;min-width:0;flex:1 1 160px}
+    .item-actions textarea{background:var(--surface);border:1px solid var(--border);color:var(--text);border-radius:var(--radius-sm);padding:8px 10px;font-size:.84rem;width:100%;min-height:64px;resize:vertical;font-family:inherit}
     .item-actions .reason-box{display:none;width:100%;margin-top:6px}
+    .expand-btn{background:none;border:none;color:var(--primary);font-size:.75rem;cursor:pointer;padding:2px 0;margin-top:2px}
+    .expand-btn:hover{text-decoration:underline}
     .muted{color:var(--text-3);font-size:.75rem}
     .empty{color:var(--text-3);font-size:.82rem;padding:10px;text-align:center}
     .flash{position:fixed;bottom:16px;right:16px;left:16px;max-width:480px;margin:0 auto;background:var(--surface-3);border:1px solid var(--success);color:var(--text);padding:12px 16px;border-radius:var(--radius);font-size:.85rem;box-shadow:var(--shadow);opacity:0;transform:translateY(20px);transition:all .25s;z-index:99;pointer-events:none}
@@ -64,6 +70,26 @@
     .statusbar .dot.warn{background:var(--warning)}
     .grid2{display:grid;grid-template-columns:1fr;gap:16px}
     @media(min-width:900px){.grid2{grid-template-columns:1fr 1fr}}
+
+    /* ---- Detail modal ---- */
+    .modal-overlay{position:fixed;inset:0;background:rgba(5,8,15,.78);backdrop-filter:blur(3px);display:none;align-items:flex-end;justify-content:center;z-index:50}
+    .modal-overlay.show{display:flex}
+    @media(min-width:768px){.modal-overlay{align-items:center;padding:24px}}
+    .modal{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg) var(--radius-lg) 0 0;width:100%;max-width:760px;max-height:88vh;display:flex;flex-direction:column;box-shadow:0 -8px 40px rgba(0,0,0,.5)}
+    @media(min-width:768px){.modal{border-radius:var(--radius-lg);max-height:82vh}}
+    .modal-head{display:flex;align-items:flex-start;gap:10px;padding:14px 16px;border-bottom:1px solid var(--border)}
+    .modal-head .modal-title{font-weight:700;font-size:.98rem;flex:1;min-width:0;word-break:break-word}
+    .modal-close{background:none;border:none;color:var(--text-3);font-size:1.3rem;cursor:pointer;line-height:1;padding:2px 6px}
+    .modal-close:hover{color:var(--text)}
+    .modal-body{padding:14px 16px;overflow-y:auto;flex:1}
+    .modal-body h4{font-size:.78rem;color:var(--text-3);text-transform:uppercase;letter-spacing:.05em;margin:14px 0 6px}
+    .modal-body h4:first-child{margin-top:0}
+    .detail-block{background:var(--surface-2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px 12px;font-size:.84rem;color:var(--text-2);white-space:pre-wrap;word-break:break-word;margin-bottom:4px}
+    .comment{background:var(--surface-2);border:1px solid var(--border);border-left:3px solid var(--primary);border-radius:var(--radius-sm);padding:8px 12px;margin-bottom:8px;font-size:.82rem;color:var(--text-2);white-space:pre-wrap;word-break:break-word}
+    .comment .c-author{font-weight:600;color:var(--text);font-size:.78rem}
+    .comment .c-time{color:var(--text-3);font-size:.68rem;margin-left:6px}
+    .modal-actions{display:flex;flex-wrap:wrap;gap:8px;padding:12px 16px;border-top:1px solid var(--border)}
+    .modal-actions .spacer{flex:1}
   </style>
 </head>
 <body>
@@ -106,12 +132,25 @@
   </div>
 </div>
 
+<!-- Detail modal -->
+<div class="modal-overlay" id="modalOverlay" onclick="if(event.target===this)RV.closeModal()">
+  <div class="modal" id="modalBox" role="dialog" aria-label="Card details">
+    <div class="modal-head">
+      <div class="modal-title" id="modalTitle"></div>
+      <button class="modal-close" onclick="RV.closeModal()" aria-label="Close">✕</button>
+    </div>
+    <div class="modal-body" id="modalBody"></div>
+    <div class="modal-actions" id="modalActions"></div>
+  </div>
+</div>
+
 <div class="flash" id="flash"></div>
 
 <script>
 var API_KEY = {{ api_key|tojson }};
 function apiHeaders(){ return {'Content-Type':'application/json','X-API-Key': API_KEY}; }
 function esc(s){ if(s==null) return ''; return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function escAttr(s){ return esc(s).replace(/'/g,'&#39;'); }
 function prioClass(p){ p = String(p||''); if(p==='0') return 'p0'; if(p==='1') return 'p1'; return ''; }
 
 var RV = {
@@ -137,6 +176,30 @@ var RV = {
     el.className = 'flash show' + (isErr ? ' err' : '');
     setTimeout(function(){ el.className = 'flash'; }, 3200);
   },
+  /* --- shared expand/collapse --- */
+  toggleExpand: function(id){
+    var body = document.getElementById(id);
+    if(!body) return;
+    var clamped = body.classList.toggle('clamped');
+    var btn = document.getElementById('expandBtn_' + id);
+    if(btn) btn.textContent = clamped ? '▼ Show full text' : '▲ Show less';
+  },
+  expandClamped: function(bodyId, text, limit){
+    // Build body element with clamp + expand button when text exceeds limit.
+    var el = document.createElement('div');
+    el.className = 'item-body';
+    el.id = bodyId;
+    var needBtn = text.length > limit;
+    if(needBtn){
+      el.classList.add('clamped');
+      el.textContent = text;
+    } else {
+      el.textContent = text;
+    }
+    return {el: el, needBtn: needBtn};
+  },
+
+  /* --- rendering --- */
   render: function(){
     RV.renderGate(RV.data.gate || []);
     RV.renderBlocked(RV.data.blocked || []);
@@ -148,26 +211,48 @@ var RV = {
     var box = document.getElementById('gateList');
     if(!items.length){ box.innerHTML = '<div class="empty">No proposals awaiting your decision ✓</div>'; return; }
     var html = '';
-    items.forEach(function(p){
+    items.forEach(function(p, i){
+      var bodyId = 'gbody_' + i;
+      var bodyEsc = esc(p.body || '');
+      var preview = bodyEsc.slice(0,220);
+      var hasMore = bodyEsc.length > 220;
       html += '<div class="item">'
         + '<div class="item-head"><span class="item-title">' + esc(p.title) + '</span>'
         + '<span class="tag">' + esc(p.path || '') + '</span>'
         + (p.score ? '<span class="tag">score ' + esc(p.score) + '</span>' : '')
         + '</div>'
-        + '<div class="item-body">' + esc(p.body.slice(0,220)) + (p.body.length>220?'…':'') + '</div>'
+        + '<div class="item-body" id="' + bodyId + '">' + preview + (hasMore ? '…' : '') + '</div>'
+        + (hasMore ? '<button class="expand-btn" id="expandBtn_' + bodyId + '" onclick="RV.toggleProposal(' + i + ')">▼ Show full text</button>' : '')
         + '<div class="item-actions">'
-        + '<button class="btn btn-ok" onclick="RV.gateApprove(\'' + esc(p.slug) + '\')">✓ Approve</button>'
+        + '<button class="btn btn-ok" onclick="RV.gateApprove(\'' + escAttr(p.slug) + '\')">✓ Approve</button>'
         + '<button class="btn btn-warn" onclick="RV.toggleShelve(this)">Shelve</button>'
         + '<button class="btn" onclick="RV.toggleModify(this)">Modify</button>'
         + '<div class="reason-box">'
         + '<input type="text" placeholder="Reason for shelving…" data-kind="shelve">'
         + '<input type="text" placeholder="Change requested…" data-kind="modify" style="display:none">'
-        + '<button class="btn btn-warn" data-kind="shelve" onclick="RV.gateShelve(this,\'' + esc(p.slug) + '\')">Confirm shelve</button>'
-        + '<button class="btn" data-kind="modify" onclick="RV.gateModify(this,\'' + esc(p.slug) + '\')" style="display:none">Confirm modify</button>'
+        + '<button class="btn btn-warn" data-kind="shelve" onclick="RV.gateShelve(this,\'' + escAttr(p.slug) + '\')">Confirm shelve</button>'
+        + '<button class="btn" data-kind="modify" onclick="RV.gateModify(this,\'' + escAttr(p.slug) + '\')" style="display:none">Confirm modify</button>'
         + '</div>'
         + '</div></div>';
     });
     box.innerHTML = html;
+    // store full bodies for lazy expansion
+    RV._gateBodies = items.map(function(p){ return p.body || ''; });
+  },
+  toggleProposal: function(i){
+    var bodyId = 'gbody_' + i;
+    var el = document.getElementById(bodyId);
+    var btn = document.getElementById('expandBtn_' + bodyId);
+    if(!el) return;
+    if(el.getAttribute('data-full') === '1'){
+      el.textContent = (RV._gateBodies[i] || '').slice(0,220) + (RV._gateBodies[i].length > 220 ? '…' : '');
+      el.removeAttribute('data-full');
+      if(btn) btn.textContent = '▼ Show full text';
+    } else {
+      el.textContent = RV._gateBodies[i] || '';
+      el.setAttribute('data-full','1');
+      if(btn) btn.textContent = '▲ Show less';
+    }
   },
   toggleShelve: function(btn){
     var box = btn.parentNode.querySelector('.reason-box');
@@ -209,23 +294,42 @@ var RV = {
     var box = document.getElementById('blockedList');
     if(!items.length){ box.innerHTML = '<div class="empty">No blocked cards ✓</div>'; return; }
     var html = '';
-    items.forEach(function(c){
+    items.forEach(function(c, i){
+      var reasonEsc = esc(c.block_reason || '');
+      var hasReasonMore = reasonEsc.length > 200;
       html += '<div class="item">'
         + '<div class="item-head"><span class="item-title">' + esc(c.title) + '</span>'
         + '<span class="tag ' + prioClass(c.priority) + '">P' + esc(c.priority) + '</span>'
         + '<span class="tag">' + esc(c.assignee || '?') + '</span>'
         + '<span class="tag">' + esc(c.id) + '</span></div>'
-        + (c.block_reason ? '<div class="item-body">🚫 ' + esc(c.block_reason) + '</div>' : '')
-        + (c.last_comment ? '<div class="muted">💬 ' + esc(c.last_comment) + '</div>' : '')
-        + '<div class="item-actions">'
-        + '<button class="btn btn-ok" onclick="RV.cardUnblock(\'' + esc(c.id) + '\')">✓ Approve / Unblock</button>'
+        + (c.block_reason ? '<div class="item-body" id="rbody_' + i + '">🚫 ' + reasonEsc.slice(0,200) + (hasReasonMore ? '…' : '') + '</div>' : '')
+        + (hasReasonMore ? '<button class="expand-btn" id="expandBtn_rbody_' + i + '" onclick="RV.toggleBlockReason(' + i + ')">▼ Show full reason</button>' : '')
+        + (c.last_comment ? '<div class="muted" style="margin-top:4px">💬 ' + esc(c.last_comment.slice(0,140)) + (c.last_comment.length>140?'…':'') + '</div>' : '')
+        + '<div class="item-actions" style="margin-top:8px">'
+        + '<button class="btn btn-ok" onclick="RV.cardUnblock(\'' + escAttr(c.id) + '\')">✓ Approve / Unblock</button>'
         + '<button class="btn" onclick="RV.toggleInstruct(this)">✎ Instructions</button>'
+        + '<button class="btn btn-link" onclick="RV.openCard(\'' + escAttr(c.id) + '\')">ℹ️ Details</button>'
         + '<div class="reason-box">'
-        + '<input type="text" placeholder="Your instruction to the worker…">'
-        + '<button class="btn" onclick="RV.cardComment(this,\'' + esc(c.id) + '\')">Send instruction</button>'
+        + '<textarea placeholder="Your instruction to the worker…"></textarea>'
+        + '<div style="display:flex;gap:6px;margin-top:6px"><button class="btn" onclick="RV.cardComment(this,\'' + escAttr(c.id) + '\')">Send instruction</button></div>'
         + '</div></div></div>';
     });
     box.innerHTML = html;
+    RV._blockReasons = items.map(function(c){ return c.block_reason || ''; });
+  },
+  toggleBlockReason: function(i){
+    var el = document.getElementById('rbody_' + i);
+    var btn = document.getElementById('expandBtn_rbody_' + i);
+    if(!el) return;
+    if(el.getAttribute('data-full') === '1'){
+      el.textContent = '🚫 ' + (RV._blockReasons[i] || '').slice(0,200) + (RV._blockReasons[i].length > 200 ? '…' : '');
+      el.removeAttribute('data-full');
+      if(btn) btn.textContent = '▼ Show full reason';
+    } else {
+      el.textContent = '🚫 ' + (RV._blockReasons[i] || '');
+      el.setAttribute('data-full','1');
+      if(btn) btn.textContent = '▲ Show less';
+    }
   },
   toggleInstruct: function(btn){
     var box = btn.parentNode.querySelector('.reason-box');
@@ -239,12 +343,80 @@ var RV = {
   },
   cardComment: function(btn, id){
     var box = btn.parentNode;
-    var text = box.querySelector('input[type=text]').value;
+    var text = box.querySelector('textarea').value;
     if(!text){ RV.flash('Type an instruction first', true); return; }
     fetch('/api/review/cards/comment', {method:'POST', headers: apiHeaders(), body: JSON.stringify({task_id: id, text: text})})
       .then(function(r){ return r.json(); })
       .then(function(d){ RV.flash(d.ok ? 'Instruction sent ✓' : ('Failed: ' + (d.stderr||'?')), !d.ok); if(d.ok) RV.refresh(); })
       .catch(function(e){ RV.flash('Error: ' + e, true); });
+  },
+
+  /* --- detail modal --- */
+  openCard: function(id){
+    document.getElementById('modalTitle').textContent = 'Loading…';
+    document.getElementById('modalBody').innerHTML = '<div class="empty">Fetching card details…</div>';
+    document.getElementById('modalActions').innerHTML = '';
+    document.getElementById('modalOverlay').classList.add('show');
+    fetch('/api/review/cards/detail?task_id=' + encodeURIComponent(id), {headers: {'X-API-Key': API_KEY}})
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        if(!d.ok){ RV.flash('Failed: ' + (d.error||'?'), true); RV.closeModal(); return; }
+        RV.renderCardModal(d.card);
+      })
+      .catch(function(e){ RV.flash('Error: ' + e, true); RV.closeModal(); });
+  },
+  renderCardModal: function(c){
+    document.getElementById('modalTitle').textContent = c.title || c.id;
+    var h = '';
+    h += '<h4>Card</h4><div class="detail-block">' + esc(c.id)
+      + ' · P' + esc(c.priority) + ' · ' + esc(c.assignee || '?') + ' · ' + esc(c.status || '')
+      + (c.block_kind ? ' · block kind: ' + esc(c.block_kind) : '') + '</div>';
+    if(c.block_reason) h += '<h4>Block reason</h4><div class="detail-block">🚫 ' + esc(c.block_reason) + '</div>';
+    if(c.last_failure_error && c.last_failure_error !== c.block_reason)
+      h += '<h4>Last failure</h4><div class="detail-block">' + esc(c.last_failure_error) + '</div>';
+    if(c.body) h += '<h4>Task description</h4><div class="detail-block">' + esc(c.body) + '</div>';
+    if(c.comments && c.comments.length){
+      h += '<h4>Comments (' + c.comments.length + ')</h4>';
+      c.comments.forEach(function(cm){
+        h += '<div class="comment"><span class="c-author">' + esc(cm.author) + '</span>'
+          + '<span class="c-time">' + esc(cm.created_at || '') + '</span><br>' + esc(cm.body) + '</div>';
+      });
+    } else {
+      h += '<h4>Comments</h4><div class="empty">No comments</div>';
+    }
+    document.getElementById('modalBody').innerHTML = h;
+    document.getElementById('modalActions').innerHTML =
+        '<button class="btn btn-ok" onclick="RV.cardUnblock(\'' + escAttr(c.id) + '\')">✓ Approve / Unblock</button>'
+      + '<button class="btn btn-danger" onclick="RV.modalComment(\'' + escAttr(c.id) + '\')">✎ Add instruction</button>'
+      + '<span class="spacer"></span>'
+      + '<button class="btn" onclick="RV.closeModal()">Close</button>';
+  },
+  modalComment: function(id){
+    var body = document.getElementById('modalBody');
+    var ta = document.createElement('textarea');
+    ta.placeholder = 'Instruction for the worker…';
+    ta.style.marginTop = '10px';
+    var sendBtn = document.createElement('button');
+    sendBtn.className = 'btn';
+    sendBtn.textContent = 'Send instruction';
+    sendBtn.style.marginTop = '6px';
+    sendBtn.onclick = function(){
+      var text = ta.value;
+      if(!text){ RV.flash('Type an instruction first', true); return; }
+      fetch('/api/review/cards/comment', {method:'POST', headers: apiHeaders(), body: JSON.stringify({task_id: id, text: text})})
+        .then(function(r){ return r.json(); })
+        .then(function(d){
+          RV.flash(d.ok ? 'Instruction sent ✓' : ('Failed: ' + (d.stderr||'?')), !d.ok);
+          if(d.ok){ RV.closeModal(); RV.refresh(); }
+        })
+        .catch(function(e){ RV.flash('Error: ' + e, true); });
+    };
+    body.appendChild(ta);
+    body.appendChild(sendBtn);
+    ta.focus();
+  },
+  closeModal: function(){
+    document.getElementById('modalOverlay').classList.remove('show');
   },
   renderList: function(kind, items, compact){
     document.getElementById(kind + 'Count').textContent = items.length;
