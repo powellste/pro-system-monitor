@@ -25,8 +25,9 @@ import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+from urllib.parse import quote
 
-from flask import jsonify, request
+from flask import jsonify, request, send_file
 
 
 # ---------------------------------------------------------------------------
@@ -155,6 +156,65 @@ def _card_block_reason(card_id: str) -> str:
         return str(rows[0]["payload"])[:2000]
 
 
+def _card_completed_event(card_id: str) -> Dict[str, Any]:
+    """Latest 'completed' task_event payload (summary / result / metadata)."""
+    rows = _kanban_query(
+        "SELECT payload FROM task_events WHERE task_id=? AND kind='completed' "
+        "ORDER BY id DESC LIMIT 1",
+        (card_id,),
+    )
+    if not rows:
+        return {}
+    try:
+        p = json.loads(rows[0]["payload"])
+        return p if isinstance(p, dict) else {}
+    except (json.JSONDecodeError, AttributeError):
+        return {}
+
+
+def _card_latest_run(card_id: str) -> Dict[str, Any]:
+    """Latest task_runs row for a card (profile, outcome, summary, metadata)."""
+    rows = _kanban_query(
+        "SELECT profile, outcome, summary, metadata, error, ended_at "
+        "FROM task_runs WHERE task_id=? ORDER BY id DESC LIMIT 1",
+        (card_id,),
+    )
+    if not rows:
+        return {}
+    out = dict(rows[0])
+    try:
+        out["metadata"] = json.loads(out["metadata"]) if out.get("metadata") else {}
+    except (json.JSONDecodeError, TypeError):
+        out["metadata"] = {}
+    return out
+
+
+def _card_attachments(card_id: str) -> List[Dict[str, Any]]:
+    rows = _kanban_query(
+        "SELECT id, filename, stored_path, content_type, size, uploaded_by, "
+        "created_at FROM task_attachments WHERE task_id=? ORDER BY id DESC LIMIT 10",
+        (card_id,),
+    )
+    _EXT_CT = {
+        ".md": "text/markdown", ".markdown": "text/markdown", ".txt": "text/plain",
+        ".json": "application/json", ".csv": "text/csv", ".html": "text/html",
+        ".htm": "text/html", ".pdf": "application/pdf", ".png": "image/png",
+        ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif",
+        ".webp": "image/webp", ".svg": "image/svg+xml", ".py": "text/x-python",
+        ".yaml": "text/yaml", ".yml": "text/yaml", ".log": "text/plain",
+    }
+    for r in rows:
+        if not r.get("content_type"):
+            r["content_type"] = _EXT_CT.get(
+                Path(r["filename"] or "").suffix.lower(), "application/octet-stream"
+            )
+        r["url"] = (
+            f"/api/review/attachments/{card_id}/"
+            + quote(r["filename"])
+        )
+    return rows
+
+
 def _run_workflow(verb: str, args: List[str]) -> Dict[str, Any]:
     cmd = ["python3", str(PROPOSAL_ACTIONS), verb] + args
     try:
@@ -206,8 +266,34 @@ def register_review_routes(app) -> None:
             "SELECT id, title, assignee, priority, status FROM tasks "
             "WHERE status='running' ORDER BY priority DESC LIMIT 10",
         )
+        completed = _kanban_query(
+            "SELECT id, title, assignee, priority, status, created_at, "
+            "completed_at, result FROM tasks WHERE status='done' "
+            "ORDER BY completed_at DESC LIMIT 30",
+        )
+        for c in completed:
+            ev = _card_completed_event(c["id"])
+            run = _card_latest_run(c["id"])
+            c["summary"] = (
+                ev.get("summary")
+                or run.get("summary")
+                or ""
+            )
+            c["run_profile"] = run.get("profile") or ""
+            c["run_outcome"] = run.get("outcome") or ""
+            meta = ev.get("metadata") or run.get("metadata") or {}
+            if not isinstance(meta, dict):
+                try:
+                    meta = json.loads(meta)
+                except (json.JSONDecodeError, TypeError):
+                    meta = {}
+            c["metadata"] = meta
+            c["attachments"] = _card_attachments(c["id"])
+            c["created_at"] = c.get("created_at") or ""
+            c["completed_at"] = c.get("completed_at") or ""
         return jsonify({"gate": gate, "blocked": blocked,
                         "ready": ready, "running": running,
+                        "completed": completed,
                         "generated_at": _now_iso()})
 
     @app.post("/api/review/gate/approve")
@@ -286,3 +372,36 @@ def register_review_routes(app) -> None:
         )
         c["comments"] = _card_comments(card_id)
         return jsonify({"ok": True, "card": c})
+
+    @app.get("/api/review/attachments/<task_id>/<path:filename>")
+    def review_attachment(task_id: str, filename: str):
+        """Serve a stored task attachment (images inline, others as download)."""
+        if not filename:
+            return jsonify({"ok": False, "error": "filename required"}), 400
+        rows = _kanban_query(
+            "SELECT stored_path, content_type, size, filename "
+            "FROM task_attachments WHERE task_id=? AND filename=?",
+            (task_id, filename),
+        )
+        if not rows:
+            return jsonify({"ok": False, "error": "attachment not found"}), 404
+        stored = Path(rows[0]["stored_path"])
+        if not stored.is_file():
+            return jsonify({"ok": False, "error": "attachment missing on disk"}), 404
+        ct = rows[0]["content_type"] or ""
+        if not ct:
+            ct = {
+                ".md": "text/markdown", ".markdown": "text/markdown", ".txt": "text/plain",
+                ".json": "application/json", ".csv": "text/csv", ".html": "text/html",
+                ".pdf": "application/pdf", ".png": "image/png", ".jpg": "image/jpeg",
+                ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp",
+                ".svg": "image/svg+xml", ".py": "text/x-python", ".log": "text/plain",
+            }.get(Path(filename).suffix.lower(), "application/octet-stream")
+        inline = ct.startswith("image/") or ct.startswith("text/")
+        return send_file(
+            str(stored),
+            mimetype=ct,
+            as_attachment=not inline,
+            download_name=rows[0]["filename"],
+            max_age=0,
+        )

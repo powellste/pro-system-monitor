@@ -71,6 +71,26 @@
     .grid2{display:grid;grid-template-columns:1fr;gap:16px}
     @media(min-width:900px){.grid2{grid-template-columns:1fr 1fr}}
 
+    /* ---- Tabs ---- */
+    .tabs{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px}
+    .tab{border:1px solid var(--border);background:var(--surface);color:var(--text-2);padding:8px 16px;border-radius:20px;font-size:.85rem;cursor:pointer;transition:all .15s;font-weight:600}
+    .tab:hover{background:var(--surface-3)}
+    .tab.active{background:var(--primary);border-color:var(--primary);color:#fff}
+    .tab .tcnt{opacity:.75;font-size:.72rem;margin-left:4px}
+    .tabview{display:none}
+    .tabview.active{display:block}
+
+    /* ---- Completed list ---- */
+    .done-meta{background:var(--surface-2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px 10px;margin-top:6px;font-size:.78rem;color:var(--text-2);word-break:break-word}
+    .done-meta pre{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.72rem;white-space:pre-wrap;word-break:break-word;color:var(--text-2);margin-top:4px;max-height:180px;overflow-y:auto}
+    .atts{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+    .att{display:inline-flex;align-items:center;gap:6px;background:var(--surface-3);border:1px solid var(--border);border-radius:var(--radius-sm);padding:4px 10px;font-size:.74rem;color:var(--text-2);max-width:100%}
+    .att img{max-width:140px;max-height:80px;border-radius:6px;object-fit:cover;display:block}
+    .att a{color:var(--primary);word-break:break-all}
+    .att .asize{color:var(--text-3);white-space:nowrap}
+    .done-time{font-size:.68rem;color:var(--text-3)}
+    .done-summary{margin-top:4px}
+
     /* ---- Detail modal ---- */
     .modal-overlay{position:fixed;inset:0;background:rgba(5,8,15,.78);backdrop-filter:blur(3px);display:none;align-items:flex-end;justify-content:center;z-index:50}
     .modal-overlay.show{display:flex}
@@ -106,28 +126,46 @@
     </div>
   </div>
 
-  <!-- Gate proposals -->
-  <div class="card">
-    <h2>🎯 Gate Proposals <span class="badge warn" id="gateCount">0</span></h2>
-    <div id="gateList"><div class="empty">Loading proposals…</div></div>
+  <!-- Tabs -->
+  <div class="tabs">
+    <button class="tab active" id="tabBtn_live" onclick="RV.setTab('live')">Live <span class="tcnt" id="liveCount"></span></button>
+    <button class="tab" id="tabBtn_completed" onclick="RV.setTab('completed')">✓ Completed <span class="tcnt" id="completedCount">0</span></button>
   </div>
 
-  <!-- Cards blocked -->
-  <div class="card">
-    <h2>📋 Cards Blocked — review required <span class="badge" id="blockedCount">0</span></h2>
-    <div id="blockedList"><div class="empty">Loading cards…</div></div>
-  </div>
-
-  <div class="grid2">
-    <!-- In flight -->
+  <!-- Tab: Live -->
+  <div class="tabview active" id="tabview_live">
+    <!-- Gate proposals -->
     <div class="card">
-      <h2>▶ In Flight <span class="badge" id="runningCount">0</span></h2>
-      <div id="runningList"><div class="empty">Loading…</div></div>
+      <h2>🎯 Gate Proposals <span class="badge warn" id="gateCount">0</span></h2>
+      <div id="gateList"><div class="empty">Loading proposals…</div></div>
     </div>
-    <!-- Ready / backlog -->
+
+    <!-- Cards blocked -->
     <div class="card">
-      <h2>⏳ Ready / Backlog <span class="badge" id="readyCount">0</span></h2>
-      <div id="readyList"><div class="empty">Loading…</div></div>
+      <h2>📋 Cards Blocked — review required <span class="badge" id="blockedCount">0</span></h2>
+      <div id="blockedList"><div class="empty">Loading cards…</div></div>
+    </div>
+
+    <div class="grid2">
+      <!-- In flight -->
+      <div class="card">
+        <h2>▶ In Flight <span class="badge" id="runningCount">0</span></h2>
+        <div id="runningList"><div class="empty">Loading…</div></div>
+      </div>
+      <!-- Ready / backlog -->
+      <div class="card">
+        <h2>⏳ Ready / Backlog <span class="badge" id="readyCount">0</span></h2>
+        <div id="readyList"><div class="empty">Loading…</div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tab: Completed -->
+  <div class="tabview" id="tabview_completed">
+    <div class="card">
+      <h2>✓ Completed Work <span class="badge" id="completedCount2">0</span></h2>
+      <div class="muted" style="margin-bottom:10px">Most recent 30 done cards — summaries, metadata, and attachments.</div>
+      <div id="completedList"><div class="empty">Loading…</div></div>
     </div>
   </div>
 </div>
@@ -205,6 +243,104 @@ var RV = {
     RV.renderBlocked(RV.data.blocked || []);
     RV.renderList('running', RV.data.running || [], true);
     RV.renderList('ready', RV.data.ready || [], true);
+    RV.renderCompleted(RV.data.completed || []);
+    var liveN = (RV.data.gate||[]).length + (RV.data.blocked||[]).length
+              + (RV.data.running||[]).length + (RV.data.ready||[]).length;
+    document.getElementById('liveCount').textContent = liveN;
+  },
+  setTab: function(name){
+    document.querySelectorAll('.tab').forEach(function(b){ b.classList.remove('active'); });
+    document.querySelectorAll('.tabview').forEach(function(v){ v.classList.remove('active'); });
+    document.getElementById('tabBtn_' + name).classList.add('active');
+    document.getElementById('tabview_' + name).classList.add('active');
+  },
+  fmtTime: function(ts){
+    if(!ts) return '';
+    var t = Number(ts);
+    if(!isFinite(t) || t <= 0) return String(ts);
+    var d = new Date(t * 1000);
+    return d.toLocaleString(undefined, {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'});
+  },
+  fmtSize: function(n){
+    if(n == null) return '';
+    n = Number(n);
+    if(n < 1024) return n + ' B';
+    if(n < 1048576) return (n/1024).toFixed(1) + ' KB';
+    return (n/1048576).toFixed(1) + ' MB';
+  },
+  renderCompleted: function(items){
+    document.getElementById('completedCount').textContent = items.length;
+    document.getElementById('completedCount2').textContent = items.length;
+    var box = document.getElementById('completedList');
+    if(!items.length){ box.innerHTML = '<div class="empty">No completed cards yet</div>'; return; }
+    var html = '';
+    items.forEach(function(c, i){
+      var bodyId = 'dbody_' + i;
+      var metaId = 'dmeta_' + i;
+      var sum = c.summary || '';
+      var sumEsc = esc(sum);
+      var clamped = sumEsc.length > 180;
+      var metaHtml = '';
+      var metaObj = c.metadata || {};
+      var metaKeys = Object.keys(metaObj).filter(function(k){ return metaObj[k] != null && metaObj[k] !== ''; });
+      if(metaKeys.length){
+        metaHtml = '<div class="done-meta">📦 metadata: '
+          + esc(metaKeys.join(', '))
+          + '<button class="expand-btn" onclick="RV.toggleDoneMeta(' + i + ')">▼ show</button>'
+          + '<pre id="' + metaId + '" style="display:none">' + esc(JSON.stringify(metaObj, null, 2)) + '</pre></div>';
+      }
+      var attsHtml = '';
+      if(c.attachments && c.attachments.length){
+        attsHtml = '<div class="atts">';
+        c.attachments.forEach(function(a){
+          var url = (a.url || '') + '?key=' + encodeURIComponent(API_KEY);
+          var icon = '📎';
+          var isImg = (a.content_type || '').indexOf('image/') === 0;
+          if(isImg) icon = '🖼';
+          else if((a.content_type || '').indexOf('text/markdown') === 0) icon = '📝';
+          else if((a.content_type || '').indexOf('application/pdf') === 0) icon = '📄';
+          var inner = isImg
+            ? '<a href="' + escAttr(url) + '" target="_blank" rel="noopener"><img src="' + escAttr(url) + '" loading="lazy" alt="' + escAttr(a.filename) + '"></a>'
+            : icon + ' <a href="' + escAttr(url) + '" target="_blank" rel="noopener">' + esc(a.filename) + '</a> <span class="asize">(' + RV.fmtSize(a.size) + ')</span>';
+          attsHtml += '<span class="att">' + inner + '</span>';
+        });
+        attsHtml += '</div>';
+      }
+      html += '<div class="item">'
+        + '<div class="item-head"><span class="item-title">' + esc(c.title) + '</span>'
+        + '<span class="tag ' + prioClass(c.priority) + '">P' + esc(c.priority) + '</span>'
+        + '<span class="tag">' + esc(c.assignee || '?') + '</span>'
+        + '<span class="tag">' + esc(c.id) + '</span></div>'
+        + '<div class="done-time">✓ completed ' + RV.fmtTime(c.completed_at)
+        + (c.run_profile ? ' · ran as ' + esc(c.run_profile) : '') + '</div>'
+        + (sum ? '<div class="item-body done-summary" id="' + bodyId + '">' + (clamped ? sumEsc.slice(0,180) + '…' : sumEsc) + '</div>' : '')
+        + (clamped ? '<button class="expand-btn" id="expandBtn_' + bodyId + '" onclick="RV.toggleDoneSummary(' + i + ')">▼ Show full summary</button>' : '')
+        + metaHtml
+        + attsHtml
+        + '</div>';
+    });
+    box.innerHTML = html;
+    RV._doneSummaries = items.map(function(c){ return c.summary || ''; });
+  },
+  toggleDoneSummary: function(i){
+    var bodyId = 'dbody_' + i;
+    var el = document.getElementById(bodyId);
+    var btn = document.getElementById('expandBtn_' + bodyId);
+    if(!el) return;
+    if(el.getAttribute('data-full') === '1'){
+      el.textContent = (RV._doneSummaries[i] || '').slice(0,180) + (RV._doneSummaries[i].length > 180 ? '…' : '');
+      el.removeAttribute('data-full');
+      if(btn) btn.textContent = '▼ Show full summary';
+    } else {
+      el.textContent = RV._doneSummaries[i] || '';
+      el.setAttribute('data-full','1');
+      if(btn) btn.textContent = '▲ Show less';
+    }
+  },
+  toggleDoneMeta: function(i){
+    var el = document.getElementById('dmeta_' + i);
+    if(!el) return;
+    el.style.display = (el.style.display === 'none') ? 'block' : 'none';
   },
   renderGate: function(items){
     document.getElementById('gateCount').textContent = items.length;
