@@ -121,6 +121,11 @@
     </div>
     <div class="right">
       <span class="statusbar" id="statusbar"><span class="dot" id="statusdot"></span><span id="statustext">Loading…</span></span>
+      <select id="boardSelect" class="btn" style="max-width:170px" onchange="RV.setBoard(this.value)">
+        <option value="pain-point">🎯 pain-point (trading)</option>
+        <option value="sp-photo">📷 sp-photo (gallery)</option>
+        <option value="system-monitor">🖥 system-monitor</option>
+      </select>
       <button class="btn" onclick="RV.refresh()">⟳ Refresh</button>
       <a class="btn" href="/">← Monitor</a>
     </div>
@@ -193,11 +198,21 @@ function prioClass(p){ p = String(p||''); if(p==='0') return 'p0'; if(p==='1') r
 
 var RV = {
   data: null,
+  board: (new URLSearchParams(window.location.search)).get('board') || 'pain-point',
+  setBoard: function(slug){
+    RV.board = slug;
+    try{ document.getElementById('boardSelect').value = slug; }catch(e){}
+    var u = new URL(window.location.href);
+    u.searchParams.set('board', slug);
+    window.history.replaceState(null, '', u.toString());
+    RV.refresh();
+  },
   refresh: function(){
-    fetch('/api/review/overview', {headers: {'X-API-Key': API_KEY}})
+    fetch('/api/review/overview?board=' + encodeURIComponent(RV.board), {headers: {'X-API-Key': API_KEY}})
       .then(function(r){ return r.json(); })
       .then(function(d){
         RV.data = d;
+        try{ document.getElementById('boardSelect').value = d.board || RV.board; }catch(e){}
         RV.render();
         RV.setStatus('ok', 'Updated ' + new Date().toLocaleTimeString());
       })
@@ -404,7 +419,7 @@ var RV = {
     box.querySelector('[data-kind=modify]').style.display = 'inline-block';
   },
   gateApprove: function(slug){
-    fetch('/api/review/gate/approve', {method:'POST', headers: apiHeaders(), body: JSON.stringify({slug: slug})})
+    fetch('/api/review/gate/approve?board=' + encodeURIComponent(RV.board), {method:'POST', headers: apiHeaders(), body: JSON.stringify({slug: slug})})
       .then(function(r){ return r.json(); })
       .then(function(d){ RV.flash(d.ok ? 'Approved ✓' : ('Failed: ' + (d.stderr||d.error||'?')), !d.ok); if(d.ok) RV.refresh(); })
       .catch(function(e){ RV.flash('Error: ' + e, true); });
@@ -412,7 +427,7 @@ var RV = {
   gateShelve: function(btn, slug){
     var box = btn.parentNode;
     var reason = box.querySelector('[data-kind=shelve]').value;
-    fetch('/api/review/gate/shelve', {method:'POST', headers: apiHeaders(), body: JSON.stringify({slug: slug, reason: reason})})
+    fetch('/api/review/gate/shelve?board=' + encodeURIComponent(RV.board), {method:'POST', headers: apiHeaders(), body: JSON.stringify({slug: slug, reason: reason})})
       .then(function(r){ return r.json(); })
       .then(function(d){ RV.flash(d.ok ? 'Shelved' : ('Failed: ' + (d.stderr||d.error||'?')), !d.ok); if(d.ok) RV.refresh(); })
       .catch(function(e){ RV.flash('Error: ' + e, true); });
@@ -420,7 +435,7 @@ var RV = {
   gateModify: function(btn, slug){
     var box = btn.parentNode;
     var change = box.querySelector('[data-kind=modify]').value;
-    fetch('/api/review/gate/modify', {method:'POST', headers: apiHeaders(), body: JSON.stringify({slug: slug, change: change})})
+    fetch('/api/review/gate/modify?board=' + encodeURIComponent(RV.board), {method:'POST', headers: apiHeaders(), body: JSON.stringify({slug: slug, change: change})})
       .then(function(r){ return r.json(); })
       .then(function(d){ RV.flash(d.ok ? 'Modify sent' : ('Failed: ' + (d.stderr||d.error||'?')), !d.ok); if(d.ok) RV.refresh(); })
       .catch(function(e){ RV.flash('Error: ' + e, true); });
@@ -472,7 +487,7 @@ var RV = {
     box.style.display = 'block';
   },
   cardUnblock: function(id){
-    fetch('/api/review/cards/unblock', {method:'POST', headers: apiHeaders(), body: JSON.stringify({task_id: id, reason: 'approved via Review Hub'})})
+    fetch('/api/review/cards/unblock?board=' + encodeURIComponent(RV.board), {method:'POST', headers: apiHeaders(), body: JSON.stringify({task_id: id, reason: 'approved via Review Hub'})})
       .then(function(r){ return r.json(); })
       .then(function(d){ RV.flash(d.ok ? 'Unblocked ✓' : ('Failed: ' + (d.stderr||'?')), !d.ok); if(d.ok) RV.refresh(); })
       .catch(function(e){ RV.flash('Error: ' + e, true); });
@@ -481,7 +496,7 @@ var RV = {
     var box = btn.parentNode;
     var text = box.querySelector('textarea').value;
     if(!text){ RV.flash('Type an instruction first', true); return; }
-    fetch('/api/review/cards/comment', {method:'POST', headers: apiHeaders(), body: JSON.stringify({task_id: id, text: text})})
+    fetch('/api/review/cards/comment?board=' + encodeURIComponent(RV.board), {method:'POST', headers: apiHeaders(), body: JSON.stringify({task_id: id, text: text})})
       .then(function(r){ return r.json(); })
       .then(function(d){ RV.flash(d.ok ? 'Instruction sent ✓' : ('Failed: ' + (d.stderr||'?')), !d.ok); if(d.ok) RV.refresh(); })
       .catch(function(e){ RV.flash('Error: ' + e, true); });
@@ -493,7 +508,7 @@ var RV = {
     document.getElementById('modalBody').innerHTML = '<div class="empty">Fetching card details…</div>';
     document.getElementById('modalActions').innerHTML = '';
     document.getElementById('modalOverlay').classList.add('show');
-    fetch('/api/review/cards/detail?task_id=' + encodeURIComponent(id), {headers: {'X-API-Key': API_KEY}})
+    fetch('/api/review/cards/detail?task_id=' + encodeURIComponent(id) + '&board=' + encodeURIComponent(RV.board), {headers: {'X-API-Key': API_KEY}})
       .then(function(r){ return r.json(); })
       .then(function(d){
         if(!d.ok){ RV.flash('Failed: ' + (d.error||'?'), true); RV.closeModal(); return; }
@@ -539,7 +554,7 @@ var RV = {
     sendBtn.onclick = function(){
       var text = ta.value;
       if(!text){ RV.flash('Type an instruction first', true); return; }
-      fetch('/api/review/cards/comment', {method:'POST', headers: apiHeaders(), body: JSON.stringify({task_id: id, text: text})})
+      fetch('/api/review/cards/comment?board=' + encodeURIComponent(RV.board), {method:'POST', headers: apiHeaders(), body: JSON.stringify({task_id: id, text: text})})
         .then(function(r){ return r.json(); })
         .then(function(d){
           RV.flash(d.ok ? 'Instruction sent ✓' : ('Failed: ' + (d.stderr||'?')), !d.ok);

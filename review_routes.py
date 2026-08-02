@@ -20,6 +20,7 @@ fetches, exactly like index.html does.
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 import subprocess
 from datetime import datetime, timezone
@@ -35,12 +36,45 @@ from flask import jsonify, request, send_file
 # ---------------------------------------------------------------------------
 
 HERMES_HOME = Path.home() / ".hermes"
-KANBAN_DB = HERMES_HOME / "kanban" / "boards" / "pain-point" / "kanban.db"
+_BOARDS: Dict[str, Dict[str, Path]] = {
+    # slug -> {"db": kanban db, "vault": item vault dir}
+    "pain-point": {
+        "db": HERMES_HOME / "kanban" / "boards" / "pain-point" / "kanban.db",
+        "vault": Path.home() / "hermes-multi-agent-workflow" / "work" / "vault" / "items",
+    },
+    "sp-photo": {
+        "db": HERMES_HOME / "kanban" / "boards" / "sp-photo" / "kanban.db",
+        "vault": Path.home() / "hermes-multi-agent-workflow" / "work-sp-photo" / "vault" / "items",
+    },
+    "system-monitor": {
+        "db": HERMES_HOME / "kanban" / "boards" / "system-monitor" / "kanban.db",
+        "vault": Path.home() / "hermes-multi-agent-workflow" / "work-system-monitor" / "vault" / "items",
+    },
+}
 WORKFLOW_DIR = Path.home() / "hermes-multi-agent-workflow"
-VAULT_DIR = WORKFLOW_DIR / "work" / "vault" / "items"
 PROPOSAL_ACTIONS = WORKFLOW_DIR / "proposal_actions.py"
 
+# Back-compat defaults (routes resolve per-request; these are the fallbacks).
+KANBAN_DB = _BOARDS["pain-point"]["db"]
+VAULT_DIR = _BOARDS["pain-point"]["vault"]
+
 BOARD_SLUG = "pain-point"
+
+
+def _resolve_board() -> str:
+    """Resolve the active board slug from ?board= (or X-Board header)."""
+    slug = (
+        request.args.get("board")
+        or request.headers.get("X-Board")
+        or ""
+    ).strip()
+    if slug not in _BOARDS:
+        return BOARD_SLUG
+    return slug
+
+
+def _board_paths(slug: str) -> Dict[str, Path]:
+    return _BOARDS.get(slug, _BOARDS[BOARD_SLUG])
 
 _GATE_STATUSES = ("awaiting_approval",)
 _BLOCK_KINDS = ("needs_input", "review-required")
@@ -82,23 +116,25 @@ def _read_proposal_md(path: Path) -> Optional[Dict[str, Any]]:
     }
 
 
-def _iter_proposals() -> List[Dict[str, Any]]:
-    if not VAULT_DIR.is_dir():
+def _iter_proposals(board: str = BOARD_SLUG) -> List[Dict[str, Any]]:
+    vault = _board_paths(board)["vault"]
+    if not vault.is_dir():
         return []
     out = []
-    for p in sorted(VAULT_DIR.glob("*.md")):
+    for p in sorted(vault.glob("*.md")):
         item = _read_proposal_md(p)
         if item:
             out.append(item)
     return out
 
 
-def _kanban_query(sql: str, params: tuple = ()) -> List[Dict[str, Any]]:
+def _kanban_query(sql: str, params: tuple = (), board: str = BOARD_SLUG) -> List[Dict[str, Any]]:
     """Read-only kanban board query."""
-    if not KANBAN_DB.exists():
+    db = _board_paths(board)["db"]
+    if not db.exists():
         return []
     try:
-        con = sqlite3.connect(f"file:{KANBAN_DB}?mode=ro", uri=True, timeout=5)
+        con = sqlite3.connect(f"file:{db}?mode=ro", uri=True, timeout=5)
         con.row_factory = sqlite3.Row
         rows = [dict(r) for r in con.execute(sql, params).fetchall()]
         con.close()
@@ -107,11 +143,12 @@ def _kanban_query(sql: str, params: tuple = ()) -> List[Dict[str, Any]]:
         return []
 
 
-def _card_last_comment(card_id: str) -> str:
+def _card_last_comment(card_id: str, board: str = BOARD_SLUG) -> str:
     rows = _kanban_query(
         "SELECT payload FROM task_events WHERE task_id=? AND kind='comment' "
         "ORDER BY id DESC LIMIT 1",
         (card_id,),
+        board,
     )
     if not rows:
         return ""
@@ -122,11 +159,12 @@ def _card_last_comment(card_id: str) -> str:
         return str(rows[0]["payload"])[:300]
 
 
-def _card_comments(card_id: str, limit: int = 15) -> List[Dict[str, str]]:
+def _card_comments(card_id: str, limit: int = 15, board: str = BOARD_SLUG) -> List[Dict[str, str]]:
     rows = _kanban_query(
         "SELECT payload, created_at FROM task_events WHERE task_id=? AND kind='comment' "
         "ORDER BY id DESC LIMIT ?",
         (card_id, limit),
+        board,
     )
     out = []
     for r in rows:
@@ -141,11 +179,12 @@ def _card_comments(card_id: str, limit: int = 15) -> List[Dict[str, str]]:
     return out
 
 
-def _card_block_reason(card_id: str) -> str:
+def _card_block_reason(card_id: str, board: str = BOARD_SLUG) -> str:
     rows = _kanban_query(
         "SELECT payload FROM task_events WHERE task_id=? AND kind='blocked' "
         "ORDER BY id DESC LIMIT 1",
         (card_id,),
+        board,
     )
     if not rows:
         return ""
@@ -156,12 +195,13 @@ def _card_block_reason(card_id: str) -> str:
         return str(rows[0]["payload"])[:2000]
 
 
-def _card_completed_event(card_id: str) -> Dict[str, Any]:
+def _card_completed_event(card_id: str, board: str = BOARD_SLUG) -> Dict[str, Any]:
     """Latest 'completed' task_event payload (summary / result / metadata)."""
     rows = _kanban_query(
         "SELECT payload FROM task_events WHERE task_id=? AND kind='completed' "
         "ORDER BY id DESC LIMIT 1",
         (card_id,),
+        board,
     )
     if not rows:
         return {}
@@ -172,12 +212,13 @@ def _card_completed_event(card_id: str) -> Dict[str, Any]:
         return {}
 
 
-def _card_latest_run(card_id: str) -> Dict[str, Any]:
+def _card_latest_run(card_id: str, board: str = BOARD_SLUG) -> Dict[str, Any]:
     """Latest task_runs row for a card (profile, outcome, summary, metadata)."""
     rows = _kanban_query(
         "SELECT profile, outcome, summary, metadata, error, ended_at "
         "FROM task_runs WHERE task_id=? ORDER BY id DESC LIMIT 1",
         (card_id,),
+        board,
     )
     if not rows:
         return {}
@@ -189,11 +230,12 @@ def _card_latest_run(card_id: str) -> Dict[str, Any]:
     return out
 
 
-def _card_attachments(card_id: str) -> List[Dict[str, Any]]:
+def _card_attachments(card_id: str, board: str = BOARD_SLUG) -> List[Dict[str, Any]]:
     rows = _kanban_query(
         "SELECT id, filename, stored_path, content_type, size, uploaded_by, "
         "created_at FROM task_attachments WHERE task_id=? ORDER BY id DESC LIMIT 10",
         (card_id,),
+        board,
     )
     _EXT_CT = {
         ".md": "text/markdown", ".markdown": "text/markdown", ".txt": "text/plain",
@@ -215,11 +257,13 @@ def _card_attachments(card_id: str) -> List[Dict[str, Any]]:
     return rows
 
 
-def _run_workflow(verb: str, args: List[str]) -> Dict[str, Any]:
+def _run_workflow(verb: str, args: List[str], board: str = BOARD_SLUG) -> Dict[str, Any]:
     cmd = ["python3", str(PROPOSAL_ACTIONS), verb] + args
+    env = {**os.environ, "HERMES_KANBAN_BOARD": board}
     try:
         proc = subprocess.run(cmd, cwd=str(WORKFLOW_DIR),
-                              capture_output=True, text=True, timeout=60)
+                              capture_output=True, text=True, timeout=60,
+                              env=env)
         return {"ok": proc.returncode == 0, "returncode": proc.returncode,
                 "stdout": (proc.stdout or "")[:800],
                 "stderr": (proc.stderr or "")[:400]}
@@ -227,8 +271,8 @@ def _run_workflow(verb: str, args: List[str]) -> Dict[str, Any]:
         return {"ok": False, "returncode": -1, "stdout": "", "stderr": str(exc)}
 
 
-def _run_kanban(args: List[str]) -> Dict[str, Any]:
-    cmd = ["hermes", "kanban", "--board", BOARD_SLUG] + args
+def _run_kanban(args: List[str], board: str = BOARD_SLUG) -> Dict[str, Any]:
+    cmd = ["hermes", "kanban", "--board", board] + args
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
         return {"ok": proc.returncode == 0, "returncode": proc.returncode,
@@ -243,37 +287,43 @@ def register_review_routes(app) -> None:
 
     @app.get("/api/review/overview")
     def review_overview():
-        gate = [i for i in _iter_proposals() if i["status"] in _GATE_STATUSES]
+        board = _resolve_board()
+        paths = _board_paths(board)
+        gate = [i for i in _iter_proposals(board) if i["status"] in _GATE_STATUSES]
         gate.sort(key=lambda x: x.get("mtime", 0), reverse=True)
 
         blocked = _kanban_query(
             "SELECT id, title, assignee, priority, status, block_kind, "
             "last_failure_error, body, created_at FROM tasks WHERE status='blocked' "
             "ORDER BY priority DESC LIMIT 40",
+            board=board,
         )
         for c in blocked:
-            c["last_comment"] = _card_last_comment(c["id"])
+            c["last_comment"] = _card_last_comment(c["id"], board)
             c["block_reason"] = (
-                _card_block_reason(c["id"])
+                _card_block_reason(c["id"], board)
                 or (c.pop("last_failure_error", "") or "")
             )
 
         ready = _kanban_query(
             "SELECT id, title, assignee, priority, status FROM tasks "
             "WHERE status IN ('ready','todo') ORDER BY priority DESC LIMIT 20",
+            board=board,
         )
         running = _kanban_query(
             "SELECT id, title, assignee, priority, status FROM tasks "
             "WHERE status='running' ORDER BY priority DESC LIMIT 10",
+            board=board,
         )
         completed = _kanban_query(
             "SELECT id, title, assignee, priority, status, created_at, "
             "completed_at, result FROM tasks WHERE status='done' "
             "ORDER BY completed_at DESC LIMIT 30",
+            board=board,
         )
         for c in completed:
-            ev = _card_completed_event(c["id"])
-            run = _card_latest_run(c["id"])
+            ev = _card_completed_event(c["id"], board)
+            run = _card_latest_run(c["id"], board)
             c["summary"] = (
                 ev.get("summary")
                 or run.get("summary")
@@ -288,12 +338,14 @@ def register_review_routes(app) -> None:
                 except (json.JSONDecodeError, TypeError):
                     meta = {}
             c["metadata"] = meta
-            c["attachments"] = _card_attachments(c["id"])
+            c["attachments"] = _card_attachments(c["id"], board)
             c["created_at"] = c.get("created_at") or ""
             c["completed_at"] = c.get("completed_at") or ""
         return jsonify({"gate": gate, "blocked": blocked,
                         "ready": ready, "running": running,
                         "completed": completed,
+                        "board": board,
+                        "vault_dir": str(paths["vault"]),
                         "generated_at": _now_iso()})
 
     @app.post("/api/review/gate/approve")
@@ -302,7 +354,7 @@ def register_review_routes(app) -> None:
         slug = (data.get("slug") or "").strip()
         if not slug:
             return jsonify({"ok": False, "error": "missing slug"}), 400
-        return jsonify(_run_workflow("approve", [slug]))
+        return jsonify(_run_workflow("approve", [slug], _resolve_board()))
 
     @app.post("/api/review/gate/shelve")
     def review_gate_shelve():
@@ -312,7 +364,7 @@ def register_review_routes(app) -> None:
         if not slug:
             return jsonify({"ok": False, "error": "missing slug"}), 400
         args = [slug] + (["--reason", reason] if reason else [])
-        return jsonify(_run_workflow("shelve", args))
+        return jsonify(_run_workflow("shelve", args, _resolve_board()))
 
     @app.post("/api/review/gate/modify")
     def review_gate_modify():
@@ -321,7 +373,7 @@ def register_review_routes(app) -> None:
         change = (data.get("change") or "").strip()
         if not slug or not change:
             return jsonify({"ok": False, "error": "slug and change required"}), 400
-        return jsonify(_run_workflow("modify", [slug, "--change", change]))
+        return jsonify(_run_workflow("modify", [slug, "--change", change], _resolve_board()))
 
     @app.post("/api/review/cards/comment")
     def review_card_comment():
@@ -330,7 +382,7 @@ def register_review_routes(app) -> None:
         text = (data.get("text") or "").strip()
         if not card_id or not text:
             return jsonify({"ok": False, "error": "task_id and text required"}), 400
-        return jsonify(_run_kanban(["comment", card_id, "--author", "operator", text]))
+        return jsonify(_run_kanban(["comment", card_id, "--author", "operator", text], _resolve_board()))
 
     @app.post("/api/review/cards/unblock")
     def review_card_unblock():
@@ -340,7 +392,7 @@ def register_review_routes(app) -> None:
         if not card_id:
             return jsonify({"ok": False, "error": "task_id required"}), 400
         args = [card_id] + (["--reason", reason] if reason else [])
-        return jsonify(_run_kanban(["unblock"] + args))
+        return jsonify(_run_kanban(["unblock"] + args, _resolve_board()))
 
     @app.post("/api/review/cards/complete")
     def review_card_complete():
@@ -350,27 +402,29 @@ def register_review_routes(app) -> None:
         if not card_id:
             return jsonify({"ok": False, "error": "task_id required"}), 400
         args = [card_id] + (["--summary", summary] if summary else [])
-        return jsonify(_run_kanban(["complete"] + args))
+        return jsonify(_run_kanban(["complete"] + args, _resolve_board()))
 
     @app.get("/api/review/cards/detail")
     def review_card_detail():
         card_id = (request.args.get("task_id") or request.args.get("card_id") or "").strip()
         if not card_id:
             return jsonify({"ok": False, "error": "task_id required"}), 400
+        board = _resolve_board()
         rows = _kanban_query(
             "SELECT id, title, assignee, priority, status, block_kind, "
             "last_failure_error, body, created_at FROM tasks WHERE id=?",
             (card_id,),
+            board,
         )
         if not rows:
             return jsonify({"ok": False, "error": "card not found"}), 404
         c = rows[0]
-        c["last_comment"] = _card_last_comment(c["id"])
+        c["last_comment"] = _card_last_comment(c["id"], board)
         c["block_reason"] = (
-            _card_block_reason(c["id"])
+            _card_block_reason(c["id"], board)
             or (c.pop("last_failure_error", "") or "")
         )
-        c["comments"] = _card_comments(card_id)
+        c["comments"] = _card_comments(card_id, board=board)
         return jsonify({"ok": True, "card": c})
 
     @app.get("/api/review/attachments/<task_id>/<path:filename>")
@@ -378,10 +432,12 @@ def register_review_routes(app) -> None:
         """Serve a stored task attachment (images inline, others as download)."""
         if not filename:
             return jsonify({"ok": False, "error": "filename required"}), 400
+        board = _resolve_board()
         rows = _kanban_query(
             "SELECT stored_path, content_type, size, filename "
             "FROM task_attachments WHERE task_id=? AND filename=?",
             (task_id, filename),
+            board,
         )
         if not rows:
             return jsonify({"ok": False, "error": "attachment not found"}), 404
