@@ -1,3 +1,14 @@
+#!/usr/bin/env python3
+"""
+DEPRECATED — DEAD ARTIFACT (frozen since 2026-07-28).
+
+This is the v1 collector that used to write `monitor_history.db` (SQLite).
+The live service (`hardware-monitor.service`) runs `hardware_monitor_pro.py`
+only, which persists history to the rolling JSON store
+(~/.hermes/data/hardware-monitor-history.json) and the append-only JSONL
+archive (~/.hermes/data/hardware-monitor-history.jsonl). Nothing imports or
+runs this file; kept for reference. Do not wire it back up.
+"""
 def collect_metrics():
     """Collect all hardware metrics"""
     with collection_lock:

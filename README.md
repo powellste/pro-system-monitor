@@ -6,7 +6,7 @@ A professional hardware monitoring dashboard with real-time metrics, health scor
 
 - **Real-time Metrics**: CPU, GPU, RAM, Disk, Network monitoring
 - **Health Score**: Automated system health calculation (0-100)
-- **Persistent History**: SQLite database stores all readings for trend analysis
+- **Persistent History**: rolling ~24h JSON store + append-only JSONL archive (14-day retention) for trend analysis
 - **Alert System**: Color-coded warnings for threshold breaches
 - **Professional UI**: Dark-mode dashboard with Chart.js visualizations
 - **5-second polling**: Real-time updates without performance impact
@@ -43,17 +43,26 @@ Edit `config.py` to customize:
 - Display preferences
 - Historical data retention
 
-## Database
+## Data Storage
 
-- **File**: `monitor_history.db` (SQLite)
-- **Table**: `readings`
-- **Schema**: `id`, `timestamp`, `cpu_percent`, `gpu_percent`, `ram_used`, `ram_total`, `disk_read`, `disk_write`, `network_in`, `network_out`, `health_score`
+Metrics are stored in two layers:
+
+- **Live store** (rolling ~24h): `~/.hermes/data/hardware-monitor-history.json`
+  — in-memory deques (8640 samples @10s) persisted to disk every ~100s.
+  Served by `GET /api/history`.
+- **Long-term archive** (append-only JSONL, default 14-day retention):
+  `~/.hermes/data/hardware-monitor-history.jsonl` — one compact JSON line per
+  collection tick, pruned to `HISTORY_ARCHIVE_DAYS` (default 14). Durable
+  across restarts; use for >24h trend analysis.
+
+> The old `monitor_history.db` (SQLite) in the repo dir is a **dead artifact**
+> — nothing writes it since 2026-07-28. Kept for reference; do not rely on it.
 
 ## Technical Details
 
 ### Stack
 - **Backend**: Python 3.11 + Flask
-- **Database**: SQLite3
+- **Storage**: rolling JSON store + append-only JSONL archive (SQLite retired)
 - **Frontend**: HTML5 + Chart.js
 - **Monitoring**: psutil, nvidia-ml-py
 
@@ -82,31 +91,22 @@ Edit `config.py` to customize:
 └───────┘   └─────────┘   └─────────┘
 ```
 
-### Database Schema
-```sql
-CREATE TABLE readings (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-    cpu_percent REAL,
-    gpu_percent REAL,
-    ram_used REAL,
-    ram_total REAL,
-    disk_read BIGINT,
-    disk_write BIGINT,
-    network_in BIGINT,
-    network_out BIGINT,
-    health_score INTEGER
-);
-
-CREATE INDEX idx_readings_timestamp ON readings(timestamp);
-```
+### Data Schema
+The live store is a JSON object keyed by metric name, each value a list of
+sample dicts `{t: <unix ts>, ...}` (e.g. `cpu_temp: [{t, v}]`, `ram: [{t,
+percent, used_gb, total_gb}]`). The JSONL archive is one flat record per tick:
+`{t, cpu_temp, cpu_freq, cpu_percent, ram_percent, ram_used_gb, ram_total_gb,
+disk_percent, disk_free_gb, disk_total_gb, net_rx_mbps, net_tx_mbps,
+swap_percent, gpu_temp, gpu_util, gpu_vram_pct, gpu_power_w, llama_alive,
+llama_kv_pct}`.
 
 ## Recent Improvements
 
-- ✅ Fixed SQLite cursor errors in `/api/stats` and `/api/history`
+- ✅ Added append-only JSONL long-term archive (14-day default retention,
+  env `HISTORY_ARCHIVE_DAYS`) — durable >24h history for trend analysis
 - ✅ Added professional dark-mode UI
 - ✅ Implemented health score algorithm
-- ✅ Added persistent history storage
+- ✅ Added persistent history storage (rolling JSON store)
 - ✅ Color-coded alert system
 
 ## Future Enhancements
@@ -124,23 +124,24 @@ CREATE INDEX idx_readings_timestamp ON readings(timestamp);
 
 ### API Returns 500 Error
 ```bash
-# Check the database connection
-sqlite3 monitor_history.db ".tables"
-
-# Verify table schema
-sqlite3 monitor_history.db ".schema readings"
+# Check the live JSON store is fresh
+python3 -c "import json,time;d=json.load(open('/home/ste/.hermes/data/hardware-monitor-history.json'));print('last sample age (s):', round(time.time()-d['cpu_temp'][-1]['t'],1))"
 
 # Check application logs
+journalctl --user -u hardware-monitor -n 50 --no-pager
 tail -f hardware_monitor_pro.py.log
 ```
 
-### Database Lock Error
+### History Missing / Archive Not Growing
 ```bash
-# Close any other connections to the database
-pkill -f monitor_history.db
+# Live store freshness (last sample should be < ~60s old)
+ls -la ~/.hermes/data/hardware-monitor-history.json*
 
-# Or check for locked files
-lsof monitor_history.db
+# JSONL archive line count should increase every ~10s
+wc -l ~/.hermes/data/hardware-monitor-history.jsonl
+
+# Restart the collector if stale
+systemctl --user restart hardware-monitor
 ```
 
 ### GPU Metrics Not Working

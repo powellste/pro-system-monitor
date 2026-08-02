@@ -16,6 +16,9 @@ import subprocess
 import urllib.request
 from collections import deque
 
+# Append-only JSONL long-term archive (>24h retention, default 14 days)
+import history_archive
+
 # ---------------------------------------------------------------------------
 # App setup
 # ---------------------------------------------------------------------------
@@ -141,7 +144,7 @@ _save_counter = 0
 def _save_history():
     global _save_counter
     _save_counter += 1
-    if _save_counter < 10:   # save every 10 collections (~100s)
+    if _save_counter < 10:   # save every 10 collections (~117s measured: real tick ~11.7s, not 10s)
         return
     _save_counter = 0
     try:
@@ -969,6 +972,7 @@ def _background_collector():
     print("[MONITOR] Background collector started")
     while True:
         time.sleep(CONFIG['history_interval'])
+        _archive_record = {'t': time.time()}   # fallback if collection errors out
         with _collection_lock:
             ts = time.time()
             cpu = _collect_cpu()
@@ -1041,6 +1045,38 @@ def _background_collector():
             except Exception as e:
                 print(f"[MONITOR] llama history collect error: {e}")
 
+            # Long-term archive record (append-only JSONL, >24h retention).
+            # Compact flat record: one line per collection tick. Failure in the
+            # archive must never break collection, hence the try/except.
+            try:
+                _g0 = gpus[0] if gpus else {}
+                _llama_rec = locals().get('llama_now', {}) or {}
+                _archive_record = {
+                    't': ts,
+                    'cpu_temp': _first_temp,
+                    'cpu_freq': cpu['freq']['current'],
+                    'cpu_percent': cpu['percent'],
+                    'ram_percent': ram.percent,
+                    'ram_used_gb': round(ram.used / (1024**3), 1),
+                    'ram_total_gb': round(ram.total / (1024**3), 1),
+                    'disk_percent': disk.percent,
+                    'disk_free_gb': round(disk.free / (1024**3), 1),
+                    'disk_total_gb': round(disk.total / (1024**3), 1),
+                    'net_rx_mbps': round(net['rx_speed_bps'] / (1024**2), 2),
+                    'net_tx_mbps': round(net['tx_speed_bps'] / (1024**2), 2),
+                    'swap_percent': swap.percent,
+                    'gpu_temp': _g0.get('temperature', 0),
+                    'gpu_util': _g0.get('utilization_gpu', 0),
+                    'gpu_vram_pct': round(_g0['memory_used_gb'] / _g0['memory_total_gb'] * 100, 1)
+                                   if _g0.get('memory_total_gb') else 0,
+                    'gpu_power_w': _g0.get('power_w', 0),
+                    'llama_alive': bool(_llama_rec.get('alive')),
+                    'llama_kv_pct': round(_llama_rec.get('context_used', 0) / _llama_rec.get('context_max', 1) * 100, 1)
+                                    if _llama_rec.get('context_max') else 0,
+                }
+            except Exception:
+                _archive_record = {'t': ts}
+
             # Build cached status
             ram_data = {
                 'percent': ram.percent,
@@ -1086,6 +1122,13 @@ def _background_collector():
 
         # Persist to disk periodically (outside the lock)
         _save_history()
+
+        # Append this tick to the long-term archive (append-only JSONL)
+        try:
+            history_archive.append_record(_archive_record)
+            history_archive.prune()
+        except Exception as e:
+            print(f"[MONITOR] archive write error: {e}")
 
 
 # ---------------------------------------------------------------------------
