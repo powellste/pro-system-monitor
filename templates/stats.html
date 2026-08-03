@@ -1,0 +1,614 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>📈 LLM Stats · PRO System Monitor</title>
+<style>
+
+    /* ===== CSS Variables (Dark default) ===== */
+    :root {
+      --bg: #0b0f1a;
+      --surface: #131827;
+      --surface-2: #1b2333;
+      --surface-3: #232d42;
+      --border: #2a3548;
+      --text: #e8edf5;
+      --text-2: #94a3b8;
+      --text-3: #64748b;
+      --primary: #3b82f6;
+      --primary-dim: #1d4ed8;
+      --success: #10b981;
+      --success-bg: rgba(16,185,129,.12);
+      --warning: #f59e0b;
+      --warning-bg: rgba(245,158,11,.12);
+      --danger: #ef4444;
+      --danger-bg: rgba(239,68,68,.12);
+      --info: #06b6d4;
+      --radius-sm: 8px;
+      --radius: 12px;
+      --radius-lg: 16px;
+      --shadow: 0 1px 3px rgba(0,0,0,.3), 0 1px 2px rgba(0,0,0,.2);
+    }
+    .light {
+      --bg: #f1f5f9;
+      --surface: #ffffff;
+      --surface-2: #f8fafc;
+      --surface-3: #e2e8f0;
+      --border: #cbd5e1;
+      --text: #0f172a;
+      --text-2: #475569;
+      --text-3: #94a3b8;
+      --shadow: 0 1px 3px rgba(0,0,0,.08), 0 1px 2px rgba(0,0,0,.06);
+    }
+
+    /* ===== Reset ===== */
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    html{font-size:16px;-webkit-text-size-adjust:100%}
+    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Inter,Roboto,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;overflow-x:hidden;line-height:1.5}
+    a{color:var(--primary);text-decoration:none}
+
+    /* ===== Scrollbar ===== */
+    ::-webkit-scrollbar{width:6px;height:6px}
+    ::-webkit-scrollbar-track{background:transparent}
+    ::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
+
+    /* ===== Layout ===== */
+    .app{max-width:1440px;margin:0 auto;padding:12px}
+    @media(min-width:768px){.app{padding:20px}}
+
+    /* ===== Header ===== */
+    .header{display:flex;flex-wrap:wrap;align-items:center;gap:12px;padding:16px;background:var(--surface);border-radius:var(--radius-lg);border:1px solid var(--border);margin-bottom:16px;box-shadow:var(--shadow)}
+    .header-brand{display:flex;align-items:center;gap:12px;flex:1;min-width:0}
+    .header-brand h1{font-size:1.25rem;font-weight:700;white-space:nowrap;background:linear-gradient(135deg,var(--primary),var(--info));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+    .header-brand .sub{font-size:.75rem;color:var(--text-2);white-space:nowrap}
+    @media(min-width:768px){.header-brand h1{font-size:1.5rem}}
+    .header-actions{display:flex;gap:8px;flex-wrap:wrap}
+    .btn{display:inline-flex;align-items:center;gap:6px;padding:8px 14px;border:none;border-radius:var(--radius-sm);font-size:.8rem;font-weight:600;cursor:pointer;transition:all .15s;white-space:nowrap;color:var(--text);background:var(--surface-3)}
+    .btn:hover{filter:brightness(1.15)}
+    .btn-primary{background:var(--primary);color:#fff}
+    .btn-primary:hover{background:var(--primary-dim)}
+    .btn-icon{padding:8px;min-width:36px;justify-content:center}
+    .btn-sm{padding:4px 10px;font-size:.7rem}
+    .btn-active{background:var(--primary);color:#fff}
+    .badge{display:inline-block;padding:2px 10px;border-radius:99px;font-size:.7rem;font-weight:600}
+
+    /* ===== Health Hero ===== */
+    .hero{display:grid;grid-template-columns:auto 1fr;gap:16px;padding:20px;background:var(--surface);border-radius:var(--radius-lg);border:1px solid var(--border);margin-bottom:16px;box-shadow:var(--shadow)}
+    .hero-gauge{display:flex;flex-direction:column;align-items:center;justify-content:center;width:110px;height:110px;position:relative}
+    .hero-gauge svg{width:110px;height:110px;transform:rotate(-90deg)}
+    .hero-gauge circle{fill:none;stroke-width:8;stroke:var(--surface-3)}
+    .hero-gauge .track{stroke:var(--surface-3)}
+    .hero-gauge .fill{stroke:var(--success);stroke-dasharray:251.2;stroke-dashoffset:50.24;stroke-linecap:round;transition:stroke-dashoffset .6s ease,stroke .3s}
+    .hero-score{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font-size:2rem;font-weight:800;text-align:center;line-height:1}
+    .hero-score small{display:block;font-size:.65rem;font-weight:500;color:var(--text-2)}
+    .hero-info{display:flex;flex-direction:column;justify-content:center;min-width:0}
+    .hero-label{font-size:.8rem;color:var(--text-2)}
+    .hero-value{font-size:1.6rem;font-weight:700;word-break:break-word}
+    .hero-meta{font-size:.75rem;color:var(--text-3);margin-top:4px}
+    @media(max-width:480px){.hero{grid-template-columns:1fr;text-align:center}.hero-gauge{margin:0 auto}.hero-info{align-items:center}}
+
+    /* ===== Dashboard Grid ===== */
+    .grid{display:grid;gap:16px;grid-template-columns:1fr}
+    @media(min-width:768px){.grid{grid-template-columns:1fr 1fr}}
+    @media(min-width:1200px){.grid{grid-template-columns:1fr 1fr 1fr}}
+
+    /* ===== Cards ===== */
+    .card{background:var(--surface);border-radius:var(--radius-lg);border:1px solid var(--border);padding:16px;box-shadow:var(--shadow);transition:border-color .2s,box-shadow .2s}
+    .card:hover{border-color:var(--primary)}
+    .card-full{grid-column:1/-1}
+    .card-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;gap:8px;flex-wrap:wrap}
+    .card-header .drag-handle{cursor:grab;color:var(--text-3);padding:0 6px;font-size:1.05rem;letter-spacing:1px;line-height:1;user-select:none;-webkit-user-select:none;border-radius:6px;flex-shrink:0;touch-action:none}
+    .card-header .drag-handle:hover{color:var(--text);background:var(--surface-3)}
+    .card-header .drag-handle:active{cursor:grabbing}
+    .card.dragging{opacity:.4;outline:2px dashed var(--primary);outline-offset:3px}
+    .card.drop-before{border-top:3px solid var(--primary)}
+    .card.drop-after{border-bottom:3px solid var(--primary)}
+    .card.drop-before,.card.drop-after{transition:border-color .1s}
+    .card-title{font-size:.95rem;font-weight:600;display:flex;align-items:center;gap:8px}
+    .card-badge{font-size:.7rem;padding:2px 8px;border-radius:99px;background:var(--surface-3);color:var(--text-2)}
+
+    /* ===== Metric Tiles ===== */
+    .metrics{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-bottom:14px}
+    .metrics-3{grid-template-columns:repeat(3,1fr)}
+    @media(max-width:480px){.metrics-3{grid-template-columns:repeat(2,1fr)}}
+    .metric{background:var(--surface-2);padding:12px;border-radius:var(--radius-sm);text-align:center;cursor:pointer;transition:transform .15s,box-shadow .15s,border-color .2s,background .2s;border:1px solid transparent}
+    .metric:hover{border-color:var(--primary);transform:translateY(-2px);box-shadow:0 4px 12px rgba(0,0,0,.15)}
+    .metric:active{transform:scale(0.98)}
+    .metric.active{border-color:var(--primary);background:rgba(59,130,246,.08);box-shadow:0 0 0 1px var(--primary)}
+    .metric-value{font-size:1.5rem;font-weight:700;line-height:1.2}
+    .metric-value .unit{font-size:.75rem;font-weight:400;color:var(--text-2)}
+    .metric-label{font-size:.68rem;color:var(--text-3);text-transform:uppercase;letter-spacing:.4px;margin-top:4px}
+    .metric.warning .metric-value{color:var(--warning)}
+    .metric.danger .metric-value{color:var(--danger)}
+    .metric.good .metric-value{color:var(--success)}
+
+    /* ===== Time Range Buttons ===== */
+    .time-range{display:flex;gap:4px;margin-bottom:10px;flex-wrap:wrap}
+    .time-btn{padding:3px 8px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--text-3);font-size:.7rem;cursor:pointer;transition:all .15s}
+    .time-btn:hover{border-color:var(--primary);color:var(--text)}
+    .time-btn.active{background:var(--primary);color:#fff;border-color:var(--primary)}
+
+    /* ===== Progress Bar / Usage Bar ===== */
+    .usage-bar{height:6px;background:var(--surface-3);border-radius:3px;overflow:hidden;margin-top:8px}
+    .usage-fill{height:100%;border-radius:3px;transition:width .5s ease,background .3s}
+    .usage-fill.good{background:var(--success)}
+    .usage-fill.warning{background:var(--warning)}
+    .usage-fill.danger{background:var(--danger)}
+
+    /* ===== Chart Containers ===== */
+    .chart-wrap{position:relative;height:200px;width:100%}
+    @media(min-width:768px){.chart-wrap{height:220px}}
+    .chart-wrap-sm{height:120px}
+
+    /* ===== GPU ===== */
+    .gpu-grid{display:grid;gap:12px;margin-top:12px}
+    .gpu-item{background:var(--surface-2);padding:16px;border-radius:var(--radius);border:1px solid var(--border)}
+    .gpu-name{font-weight:600;font-size:.9rem;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px}
+    .gpu-name .throttle-warn{font-size:.7rem;padding:2px 8px;border-radius:99px;background:var(--danger-bg);color:var(--danger);font-weight:700}
+    .gpu-stats{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
+    @media(min-width:500px){.gpu-stats{grid-template-columns:repeat(4,1fr)}}
+    .gpu-stat{text-align:center;padding:8px;background:var(--surface);border-radius:var(--radius-sm)}
+    .gpu-stat-val{font-size:1.1rem;font-weight:700}
+    .gpu-stat-lbl{font-size:.65rem;color:var(--text-3);text-transform:uppercase}
+
+    /* ===== CPU Load Avg + Per-Core ===== */
+    .cpu-meta{display:flex;gap:12px;margin:8px 0 6px;flex-wrap:wrap;font-size:.78rem}
+    .load-avg{color:var(--text-2);display:flex;align-items:center;gap:2px}
+    .la-label{font-weight:600;margin-right:4px;color:var(--text-3)}
+    .la-val,.la-unit{color:var(--text-2)}
+    .la-sep{color:var(--text-3);margin:0 1px}
+    .core-grid{display:flex;flex-wrap:wrap;gap:2px;align-items:center}
+    .core-item{display:flex;align-items:center;gap:4px;background:var(--surface-2);padding:2px 6px;border-radius:4px;font-size:.65rem}
+    .core-lbl{color:var(--text-3);font-weight:600;width:16px}
+    .core-val{color:var(--text-2);font-weight:600;min-width:28px;text-align:right}
+    .core-item .usage-bar{flex:1;min-width:24px}
+
+    /* ===== Per-Partition Table ===== */
+    .part-grid{display:grid;grid-template-columns:1fr;gap:6px;margin-top:8px;font-size:.75rem}
+    .part-item{display:grid;grid-template-columns:auto 1fr auto auto;gap:8px;align-items:center;background:var(--surface-2);padding:6px 10px;border-radius:8px}
+    .part-mount{font-weight:600;color:var(--text)}
+    .part-pct{min-width:28px;text-align:right;font-weight:600}
+    .part-size{color:var(--text-3);font-size:.7rem}
+
+    /* ===== Interface Grid ===== */
+    .iface-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:6px;margin-top:8px}
+    .iface-item{background:var(--surface-2);padding:8px 12px;border-radius:8px;font-size:.75rem}
+    .iface-name{font-weight:600;color:var(--text);margin-bottom:4px}
+    .iface-stat{display:flex;justify-content:space-between;color:var(--text-2);font-size:.7rem}
+    .iface-stat .val{font-weight:600}
+
+    /* ===== Llama Card ===== */
+    .llama-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-top:10px}
+    .llama-stat{text-align:center;padding:12px;background:var(--surface-2);border-radius:var(--radius-sm);border:1px solid var(--border)}
+    .llama-stat .val{font-size:1.2rem;font-weight:700}
+    .llama-stat .lbl{font-size:.65rem;color:var(--text-3);text-transform:uppercase;margin-top:2px}
+    .llama-offline{display:flex;align-items:center;justify-content:center;gap:8px;padding:20px;color:var(--text-3)}
+    .llama-online{display:flex;align-items:center;gap:6px;font-size:.85rem;color:var(--text-2);margin-top:4px}
+    .llama-online .dot{width:10px;height:10px;border-radius:50%;display:inline-block}
+    .llama-online .dot.online{background:var(--success);box-shadow:0 0 6px var(--success)}
+    .llama-online .dot.offline{background:var(--danger)}
+
+    /* ===== Thermal & Fans Card ===== */
+    .therm-grid{display:flex;flex-direction:column;gap:4px;margin-top:8px}
+    .therm-section-title{font-size:.75rem;font-weight:600;color:var(--text-2);margin-bottom:6px;display:flex;align-items:center;gap:6px}
+    .therm-item{display:flex;align-items:center;gap:8px;padding:4px 8px;background:var(--surface-2);border-radius:6px;margin-bottom:3px;font-size:.75rem}
+    .therm-label{min-width:60px;font-weight:600;color:var(--text);white-space:nowrap}
+    .therm-bar-wrap{display:flex;align-items:center;gap:8px;flex:1}
+    .therm-val{min-width:70px;text-align:right;font-weight:700;font-size:.8rem;font-variant-numeric:tabular-nums}
+
+    /* ===== Processes Table ===== */
+    .table-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
+    table{width:100%;border-collapse:collapse;font-size:.82rem}
+    th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--border);white-space:nowrap}
+    th{color:var(--text-2);font-weight:600;font-size:.7rem;text-transform:uppercase;letter-spacing:.4px;position:sticky;top:0;background:var(--surface);z-index:1}
+    tr:hover td{background:var(--surface-2)}
+    .proc-name{max-width:160px;overflow:hidden;text-overflow:ellipsis}
+    @media(max-width:480px){td,th{padding:6px 6px;font-size:.75rem}}
+
+    /* ===== Alerts ===== */
+    .alerts{display:flex;flex-direction:column;gap:8px;padding:0}
+    .alert-item{display:flex;align-items:start;gap:10px;padding:10px 14px;border-radius:var(--radius-sm);font-size:.82rem;border-left:3px solid}
+    .alert-item.warning{background:var(--warning-bg);border-color:var(--warning);color:var(--warning)}
+    .alert-item.critical{background:var(--danger-bg);border-color:var(--danger);color:var(--danger)}
+    .alert-severity{font-weight:700;font-size:.65rem;text-transform:uppercase}
+    .alert-source{font-weight:600}
+    .alert-msg{color:var(--text-2)}
+
+    /* ===== Status Bar ===== */
+    .status-bar{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:center;padding:12px 16px;background:var(--surface);border-radius:var(--radius);border:1px solid var(--border);margin-top:16px;font-size:.78rem;color:var(--text-2)}
+    .status-bar .dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:4px}
+    .status-bar .dot.online{background:var(--success);box-shadow:0 0 6px var(--success)}
+    .status-bar .dot.offline{background:var(--danger)}
+
+    /* ===== Toast ===== */
+    .toast{position:fixed;bottom:30px;left:50%;transform:translateX(-50%);padding:10px 24px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);box-shadow:0 8px 30px rgba(0,0,0,.4);z-index:9999;font-size:.85rem;opacity:0;transition:opacity .3s;pointer-events:none}
+    .toast.show{opacity:1}
+
+    /* ===== Responsive Tuning ===== */
+    @media(max-width:480px){
+      .header-actions .btn span{display:none}
+      .card{padding:12px}
+      .metric{padding:10px}
+      .metric-value{font-size:1.2rem}
+      .chart-wrap{height:160px}
+      .gpu-stats{grid-template-columns:repeat(2,1fr)}
+      .core-item{font-size:.6rem;padding:1px 4px}
+      .core-lbl{width:12px}
+      .core-val{min-width:20px}
+      .part-item{grid-template-columns:1fr auto;font-size:.7rem}
+      .part-item .usage-bar{display:none}
+      .iface-grid{grid-template-columns:1fr 1fr}
+      table{font-size:.72rem}
+      th,td{padding:5px 4px}
+      .proc-name{max-width:100px}
+      .gpu-stat{padding:6px}
+      .gpu-stat-val{font-size:.95rem}
+    }
+
+    /* Smooth fade-in */
+    @keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+    .card{animation:fadeIn .3s ease}
+    .card:nth-child(2){animation-delay:.05s}
+    .card:nth-child(3){animation-delay:.1s}
+    .card:nth-child(4){animation-delay:.15s}
+  
+/* ---- stats page specifics ---- */
+.grid2{display:grid;gap:12px;grid-template-columns:1fr;margin-bottom:16px}
+.grid3{display:grid;gap:12px;grid-template-columns:1fr;margin-bottom:16px}
+.grid4{display:grid;gap:10px;grid-template-columns:repeat(2,1fr);margin-bottom:16px}
+.sec{font-size:.95rem;font-weight:600;color:var(--text-2);margin:20px 0 10px;text-transform:uppercase;letter-spacing:.05em}
+.kpi{padding:12px 14px}
+.kpi-label{font-size:.72rem;color:var(--text-3);text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px}
+.kpi-value{font-size:1.25rem;font-weight:700;color:var(--text)}
+.prow{display:flex;justify-content:space-between;align-items:baseline;gap:10px;padding:5px 0;font-size:.84rem;border-bottom:1px dashed var(--border)}
+.prow:last-child{border-bottom:none}
+.prow span:first-child{color:var(--text-2)}
+.prow span:last-child{color:var(--text);font-variant-numeric:tabular-nums;text-align:right}
+.legenddot{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:6px;vertical-align:baseline}
+.chartbox{position:relative;height:250px;margin-top:8px}
+.card-title{font-size:.86rem;font-weight:600;color:var(--text-2);margin-bottom:2px}
+.st-muted{color:var(--text-3)}
+.st-warn{border-color:rgba(245,158,11,.55)!important}
+.st-error{border-color:rgba(239,68,68,.6)!important}
+table.st-tbl{width:100%;border-collapse:collapse;font-size:.84rem}
+.st-tbl th,.st-tbl td{padding:6px 8px;text-align:right;border-bottom:1px solid var(--border);white-space:nowrap;font-variant-numeric:tabular-nums}
+.st-tbl th{color:var(--text-3);font-weight:600;font-size:.74rem;text-transform:uppercase;letter-spacing:.03em;position:sticky;top:0;background:var(--surface)}
+.st-tbl td:first-child,.st-tbl th:first-child{text-align:left;white-space:normal}
+.st-tbl tr:last-child td{border-bottom:none}
+.banner{padding:12px 14px;border-radius:var(--radius);font-size:.86rem;margin-bottom:14px}
+.banner-error{background:var(--danger-bg);border:1px solid rgba(239,68,68,.4);color:var(--danger)}
+.foot{text-align:center;padding:16px 0 8px;font-size:.74rem;color:var(--text-3)}
+@media(min-width:720px){.grid2{grid-template-columns:repeat(2,1fr)}.grid3{grid-template-columns:repeat(3,1fr)}.grid4{grid-template-columns:repeat(4,1fr)}}
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="header">
+    <div class="header-brand">
+      <h1 style="font-size:1.15rem;margin:0">📈 LLM Stats</h1>
+      <span class="sub" id="pageSub">usage · cost · balances · speeds</span>
+    </div>
+    <div class="header-actions">
+      <a class="btn btn-sm" href="/" title="Back to monitor">← Monitor</a>
+      <a class="btn btn-sm" href="/review" title="Review Hub — proposals & cards">🎯 Review</a>
+      <button class="btn btn-sm" onclick="ST.refresh(true)" title="Refresh now">🔄 Refresh</button>
+      <span class="status-bar" style="margin-top:0;padding:4px 10px;gap:6px"><span class="dot" id="statusdot"></span><span class="st-muted" id="statustext">…</span></span>
+    </div>
+  </header>
+
+  <div id="errorBanner"></div>
+
+  <div class="grid4" id="kpis"><!-- KPI cards --></div>
+
+  <div class="sec">Providers</div>
+  <div class="grid2" id="providerCards"><!-- per-group cards --></div>
+
+  <div class="sec">Balances &amp; Speeds</div>
+  <div class="grid3" id="balanceCards"><!-- OpenRouter / DeepSeek / local llama --></div>
+  <div class="grid3" id="speedCards"><!-- prompt TPS / gen TPS / cloud latency --></div>
+
+  <div class="sec">Cost &amp; Usage</div>
+  <div class="grid2">
+    <div class="card"><div class="card-title">Daily cost by provider (30d)</div><div class="chartbox"><canvas id="chCost"></canvas></div></div>
+    <div class="card"><div class="card-title">Daily tokens by provider (30d)</div><div class="chartbox"><canvas id="chTokens"></canvas></div></div>
+    <div class="card"><div class="card-title">Calls per day (30d)</div><div class="chartbox"><canvas id="chCalls"></canvas></div></div>
+    <div class="card"><div class="card-title">Model cost share</div><div class="chartbox"><canvas id="chModels"></canvas></div></div>
+    <div class="card"><div class="card-title">Local LLM speed (24h)</div><div class="chartbox"><canvas id="chSpeed"></canvas></div></div>
+    <div class="card"><div class="card-title">Cloud LLM call latency today</div><div class="chartbox"><canvas id="chLat"></canvas></div></div>
+  </div>
+
+  <div class="sec">Breakdown</div>
+  <div class="card" style="margin-bottom:12px"><div class="card-title">Per-provider</div><div class="table-wrap"><table class="st-tbl" id="tblProviders"></table></div></div>
+  <div class="card"><div class="card-title">Per-model (top 15 by cost)</div><div class="table-wrap"><table class="st-tbl" id="tblModels"></table></div></div>
+
+  <div class="foot" id="foot">—</div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script>
+const API_KEY = {{ api_key|tojson }};
+const REFRESH_MS = ({{ refresh_interval|tojson }} || 60) * 1000;
+
+const ST = (() => {
+  "use strict";
+  const $ = id => document.getElementById(id);
+  const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+  const fmtMoney = v => "$" + Number(v || 0).toFixed(2);
+  const fmtNum = v => Number(v || 0).toLocaleString("en-US");
+  const fmtTok = v => { v = Number(v || 0);
+    if (v >= 1e9) return (v / 1e9).toFixed(2) + "B";
+    if (v >= 1e6) return (v / 1e6).toFixed(2) + "M";
+    if (v >= 1e3) return (v / 1e3).toFixed(1) + "K";
+    return String(v); };
+  const fmtMs = v => { v = Number(v || 0);
+    if (v >= 60000) return (v / 1000).toFixed(1) + " s";
+    return Math.round(v) + " ms"; };
+  const FIXED = { deepseek: "#3b82f6", openrouter: "#a855f7", auto: "#06b6d4", moa: "#ec4899", local: "#10b981" };
+  const charts = {};
+  let lastData = null;
+
+  function setStatus(ok, txt) {
+    $("statusdot").style.background = ok ? "var(--success)" : "var(--danger)";
+    $("statustext").textContent = txt;
+  }
+
+  async function load(force) {
+    let url = "/api/stats/llm";
+    if (API_KEY) url += "?key=" + encodeURIComponent(API_KEY);
+    if (force) url += (API_KEY ? "&" : "?") + "refresh=1";
+    const r = await fetch(url);
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    return r.json();
+  }
+
+  function banner(msg) {
+    $("errorBanner").innerHTML = msg ? `<div class="banner banner-error">⚠ ${esc(msg)}</div>` : "";
+  }
+
+  function render(d) {
+    lastData = d;
+    banner(d.state !== "ok" ? (d.state_error || "state.db unavailable") : "");
+    renderKpis(d);
+    renderProviders(d);
+    renderBalances(d);
+    renderSpeeds(d);
+    renderCharts(d);
+    renderTables(d);
+    const w = d.window || {};
+    const gen = d.generated_at ? new Date(d.generated_at) : null;
+    $("foot").textContent = "state.db window: " + (w.first_seen ? new Date(w.first_seen * 1000).toLocaleDateString() : "?") +
+      " → " + (w.last_seen ? new Date(w.last_seen * 1000).toLocaleDateString() : "?") +
+      " · updated " + (gen ? gen.toLocaleTimeString() : "?");
+  }
+
+  function renderKpis(d) {
+    const t = d.totals || {}, td = d.today || {};
+    const tin = (td.input_tokens || 0) + (td.output_tokens || 0);
+    const items = [
+      ["Today cost", fmtMoney(td.cost_usd)],
+      ["Today calls", fmtNum(td.calls)],
+      ["Today tokens", fmtTok(tin)],
+      ["All-time cost", fmtMoney(t.cost_usd)],
+      ["All-time calls", fmtNum(t.calls)],
+      ["All-time tokens", fmtTok((t.input_tokens || 0) + (t.output_tokens || 0))],
+      ["All-time in", fmtTok(t.input_tokens)],
+      ["All-time out", fmtTok(t.output_tokens)],
+    ];
+    $("kpis").innerHTML = items.map(([l, v]) =>
+      `<div class="card kpi"><div class="kpi-label">${l}</div><div class="kpi-value">${v}</div></div>`).join("");
+  }
+
+  function renderProviders(d) {
+    const tbg = d.today && d.today.by_group ? d.today.by_group : {};
+    const cards = (d.groups || []).map(g => {
+      const tg = tbg[g.group] || {};
+      return `<div class="card">
+        <div class="card-title"><span class="legenddot" style="background:${g.color}"></span>${esc(g.label)}
+          <span class="badge st-muted" style="background:var(--surface-2);color:var(--text-3)">${esc(g.group)}</span></div>
+        <div class="prow"><span>Today</span><span>${fmtNum(tg.calls || 0)} calls · ${fmtTok(tg.tokens || 0)} tok · ${fmtMoney(tg.cost_usd)}</span></div>
+        <div class="prow"><span>All-time calls</span><span>${fmtNum(g.calls)}</span></div>
+        <div class="prow"><span>Tokens in / out</span><span>${fmtTok(g.input_tokens)} / ${fmtTok(g.output_tokens)}</span></div>
+        <div class="prow"><span>All-time cost</span><span>${fmtMoney(g.cost_usd)}</span></div>
+        <div class="prow"><span>Sessions</span><span>${fmtNum(g.sessions)}</span></div>
+      </div>`;
+    }).join("");
+    $("providerCards").innerHTML = cards || `<div class="card st-muted">No provider data.</div>`;
+  }
+
+  function balCard(title, lines, warn) {
+    const cls = warn ? " st-warn" : "";
+    return `<div class="card${cls}"><div class="card-title">${title}</div>` +
+      lines.map(l => `<div class="prow"><span>${l[0]}</span><span>${l[1]}</span></div>`).join("") + `</div>`;
+  }
+
+  function renderBalances(d) {
+    const b = d.balances || {};
+    const or = b.openrouter || {};
+    const ds = b.deepseek || {};
+    const lo = b.local || {};
+    let out = "";
+
+    if (or.ok) {
+      const limit = or.limit_remaining == null ? "no limit set" : fmtMoney(or.limit_remaining);
+      const freeTier = or.is_free_tier ? " · free tier" : "";
+      out += balCard("🟣 OpenRouter",
+        [["Usage (monthly)", fmtMoney(or.usage_monthly != null ? or.usage_monthly : or.usage)],
+         ["Total usage w/ key", fmtMoney(or.usage)],
+         ["Limit remaining", limit],
+         ["Free tier", or.is_free_tier ? "yes" : "no"]],
+        or.limit_remaining != null && or.limit_remaining < 5);
+    } else {
+      out += balCard("🟣 OpenRouter", [["unavailable", esc(or.error || "?")]], true);
+    }
+
+    if (ds.ok) {
+      const cur = ds.currency === "CNY" ? "¥" : "$";
+      out += balCard("🔵 DeepSeek",
+        [["Balance", cur + Number(ds.balance).toFixed(2)],
+         ["Currency", esc(ds.currency || "?")],
+         ["Available", ds.is_available ? "yes" : "no"]],
+        ds.balance != null && ds.balance < 5);
+    } else {
+      out += balCard("🔵 DeepSeek", [["unavailable", esc(ds.error || "?")]], true);
+    }
+
+    if (lo.ok) {
+      out += balCard("🟢 Local llama-server",
+        [["Model", esc(lo.model || "?")],
+         ["Prompt TPS", lo.prompt_tps != null ? Number(lo.prompt_tps).toFixed(1) : "—"],
+         ["Gen TPS", lo.gen_tps != null ? Number(lo.gen_tps).toFixed(1) : "—"]],
+        false);
+    } else {
+      out += balCard("🟢 Local llama-server", [["unavailable", esc(lo.error || "?")]], true);
+    }
+    $("balanceCards").innerHTML = out;
+  }
+
+  function renderSpeeds(d) {
+    const b = d.balances || {};
+    const lo = b.local && b.local.ok ? b.local : null;
+    const cs = d.speeds && d.speeds.cloud ? d.speeds.cloud : {};
+    const td = cs.today || {};
+    let out = "";
+    if (lo) {
+      out += `<div class="card"><div class="card-title">Local prompt TPS</div><div class="kpi-value" style="margin-top:6px">${Number(lo.prompt_tps).toFixed(1)}</div>` +
+        `<div class="st-muted" style="font-size:.78rem;margin-top:4px">tokens/s prompt processing</div></div>`;
+      out += `<div class="card"><div class="card-title">Local gen TPS</div><div class="kpi-value" style="margin-top:6px">${Number(lo.gen_tps).toFixed(1)}</div>` +
+        `<div class="st-muted" style="font-size:.78rem;margin-top:4px">tokens/s generation</div></div>`;
+    } else {
+      out += `<div class="card"><div class="card-title">Local TPS</div><div class="st-muted" style="margin-top:6px">llama-server unavailable</div></div>`;
+      out += `<div class="card"><div class="card-title">Local TPS</div><div class="st-muted" style="margin-top:6px">llama-server unavailable</div></div>`;
+    }
+    if (td.count) {
+      out += `<div class="card"><div class="card-title">Cloud call latency (today)</div>` +
+        `<div class="kpi-value" style="margin-top:6px">${fmtMs(td.avg_ms)}</div>` +
+        `<div class="st-muted" style="font-size:.78rem;margin-top:4px">${fmtNum(td.count)} calls · median ${fmtMs(td.median_ms)} · max ${fmtMs(td.max_ms)}<br>tokens/call not logged</div></div>`;
+    } else {
+      out += `<div class="card"><div class="card-title">Cloud call latency</div><div class="st-muted" style="margin-top:6px">no LLM timing lines in engine log today</div></div>`;
+    }
+    $("speedCards").innerHTML = out;
+  }
+
+  function mkChart(id, cfg) {
+    if (charts[id]) { charts[id].destroy(); }
+    charts[id] = new Chart($(id).getContext("2d"), cfg);
+  }
+
+  const AX = {
+    color: "#94a3b8", borderColor: "rgba(148,163,184,.15)",
+    grid: { color: "rgba(148,163,184,.08)" },
+    ticks: { font: { size: 10 } },
+  };
+  const TOOLTIP = {
+    mode: "index", intersect: false,
+    titleFont: { size: 11 }, bodyFont: { size: 11 },
+    callbacks: { label: c => " " + c.dataset.label + ": " + (c.dataset.money ? fmtMoney(c.parsed.y) : fmtTok(c.parsed.y)) },
+  };
+
+  function renderCharts(d) {
+    const days = (d.daily || []).map(x => x.date.slice(5));       // MM-DD
+    const groups = (d.groups || []).map(g => g.group);
+    const series = (k, num) => ({
+      label: groupLabel(d, k), data: (d.daily || []).map(x => (x.by_group[k] || {})[num] || 0),
+      backgroundColor: FIXED[k] || "#888", borderColor: FIXED[k] || "#888",
+      stack: k, borderWidth: 1,
+    });
+    function groupLabel(dd, k) { const g = (dd.groups || []).find(x => x.group === k); return g ? g.label : k; }
+    function moneySeries(k) { return series(k, "cost_usd"); }
+    function tokSeries(k) { return series(k, "tokens"); }
+
+    // daily cost (stacked)
+    mkChart("chCost", {
+      type: "bar",
+      data: { labels: days, datasets: groups.filter(g => (d.daily || []).some(x => ((x.by_group[g] || {}).cost_usd || 0) > 0)).map(moneySeries) },
+      options: { responsive: true, maintainAspectRatio: false, scales: { x: AX, y: AX }, plugins: { tooltip: TOOLTIP, legend: { labels: { boxWidth: 10, font: { size: 10 } } } } },
+    });
+    // daily tokens (stacked)
+    mkChart("chTokens", {
+      type: "bar",
+      data: { labels: days, datasets: groups.map(tokSeries) },
+      options: { responsive: true, maintainAspectRatio: false, scales: { x: AX, y: AX }, plugins: { tooltip: TOOLTIP, legend: { labels: { boxWidth: 10, font: { size: 10 } } } } },
+    });
+    // calls per day
+    mkChart("chCalls", {
+      type: "bar",
+      data: { labels: days, datasets: [{ label: "calls", data: (d.daily || []).map(x => Object.values(x.by_group).reduce((s, g) => s + (g.calls || 0), 0)), backgroundColor: "#3b82f6" }] },
+      options: { responsive: true, maintainAspectRatio: false, scales: { x: AX, y: AX }, plugins: { tooltip: { callbacks: { label: c => " calls: " + fmtNum(c.parsed.y) } }, legend: { display: false } } },
+    });
+    // model cost share
+    const ms = (d.models || []).filter(m => m.cost_usd > 0);
+    const top = ms.slice(0, 8);
+    const other = ms.slice(8).reduce((s, m) => s + m.cost_usd, 0);
+    const lbls = top.map(m => m.label.length > 22 ? m.label.slice(0, 20) + "…" : m.label);
+    if (other > 0) { lbls.push("Other"); top.push({ label: "Other", cost_usd: other }); }
+    mkChart("chModels", {
+      type: "doughnut",
+      data: { labels: lbls, datasets: [{ data: top.map(m => m.cost_usd), backgroundColor: ["#3b82f6", "#a855f7", "#06b6d4", "#ec4899", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#64748b"] }] },
+      options: { responsive: true, maintainAspectRatio: false, cutout: "55%", plugins: { tooltip: { callbacks: { label: c => " " + (top[c.dataIndex].label || "?") + ": " + fmtMoney(c.parsed) } }, legend: { position: "right", labels: { boxWidth: 10, font: { size: 10 } } } } },
+    });
+    // local speed history
+    const lh = (d.speeds && d.speeds.local_history) || [];
+    mkChart("chSpeed", {
+      type: "line",
+      data: { labels: lh.map(p => new Date(p.t * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })),
+        datasets: [
+          { label: "gen tps", data: lh.map(p => p.gen_tps), borderColor: "#10b981", backgroundColor: "rgba(16,185,129,.12)", tension: .3, fill: true, pointRadius: 0 },
+          { label: "prompt tps", data: lh.map(p => p.prompt_tps), borderColor: "#f59e0b", backgroundColor: "transparent", tension: .3, pointRadius: 0, yAxisID: "y1" },
+        ] },
+      options: { responsive: true, maintainAspectRatio: false, scales: { x: AX, y: AX, y1: { ...AX, position: "right", grid: { drawOnChartArea: false } } }, plugins: { tooltip: TOOLTIP, legend: { labels: { boxWidth: 10, font: { size: 10 } } } } },
+    });
+    // cloud latency today
+    const ch = ((d.speeds && d.speeds.cloud) || {}).history || [];
+    const withData = ch.filter(h => h.count);
+    mkChart("chLat", {
+      type: "bar",
+      data: { labels: withData.map(h => h.t + "h"),
+        datasets: [{ label: "avg call ms", data: withData.map(h => h.avg_call_ms), backgroundColor: "#a855f7" }] },
+      options: { responsive: true, maintainAspectRatio: false, scales: { x: AX, y: AX }, plugins: { tooltip: { callbacks: { label: c => " avg call: " + fmtMs(c.parsed.y) } }, legend: { display: false } } },
+    });
+  }
+
+  function renderTables(d) {
+    const ph = ["Provider", "Group", "Endpoint", "Calls", "In", "Out", "Cost", "Sessions"];
+    const pr = (d.providers || []).map(p => [
+      esc(p.label || p.provider || "(empty)"),
+      `<span class="badge" style="background:${(FIXED[p.group]||"#888")}22;color:var(--text)">${esc(p.group)}</span>`,
+      `<span title="${esc(p.base_url)}">${esc((p.base_url || "—").replace(/^https?:\/\//, "").slice(0, 26))}</span>`,
+      fmtNum(p.calls), fmtTok(p.input_tokens), fmtTok(p.output_tokens), fmtMoney(p.cost_usd), fmtNum(p.sessions),
+    ]);
+    $("tblProviders").innerHTML = thRow(ph) + pr.map(r => `<tr>${r.map(c => `<td>${c}</td>`).join("")}</tr>`).join("");
+
+    const mh = ["Model", "Group", "Calls", "In", "Out", "Cost", "Sessions"];
+    const mr = (d.models || []).slice(0, 15).map(m => [
+      esc(m.label || m.model || "?"),
+      `<span class="badge" style="background:${(FIXED[m.group]||"#888")}22;color:var(--text)">${esc(m.group)}</span>`,
+      fmtNum(m.calls), fmtTok(m.input_tokens), fmtTok(m.output_tokens), fmtMoney(m.cost_usd), fmtNum(m.sessions),
+    ]);
+    $("tblModels").innerHTML = thRow(mh) + mr.map(r => `<tr>${r.map(c => `<td>${c}</td>`).join("")}</tr>`).join("");
+  }
+  const thRow = h => `<tr>${h.map(x => `<th>${x}</th>`).join("")}</tr>`;
+
+  async function refresh(force) {
+    setStatus(false, "loading…");
+    try {
+      const d = await load(!!force);
+      render(d);
+      setStatus(true, "ok · " + new Date().toLocaleTimeString());
+    } catch (e) {
+      setStatus(false, "error");
+      banner("Failed to load /api/stats/llm: " + e.message);
+    }
+  }
+
+  return { refresh, get lastData() { return lastData; } };
+})();
+
+Chart.defaults.color = "#94a3b8";
+Chart.defaults.borderColor = "rgba(148,163,184,.15)";
+Chart.defaults.font.size = 11;
+ST.refresh(false);
+setInterval(() => ST.refresh(false), REFRESH_MS);
+</script>
+</body>
+</html>

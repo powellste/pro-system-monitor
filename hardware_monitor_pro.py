@@ -1335,6 +1335,16 @@ except Exception as _rev_exc:  # pragma: no cover — never take the monitor dow
 
 
 # ---------------------------------------------------------------------------
+# LLM stats routes (usage, cost, provider balances, speeds)
+# ---------------------------------------------------------------------------
+try:
+    from stats_routes import register_stats_routes
+    register_stats_routes(app)
+except Exception as _stats_exc:  # pragma: no cover — never take the monitor down
+    print(f"[MONITOR] stats routes unavailable: {_stats_exc}")
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 if __name__ == '__main__':
