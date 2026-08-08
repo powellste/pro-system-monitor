@@ -775,9 +775,9 @@ def _collect_trading_engine():
 # ---------------------------------------------------------------------------
 # Systemd service health
 # ---------------------------------------------------------------------------
-SERVICES_TO_MONITOR = ['llama-server@gemma-4-E4B-it-UD-Q4_K_XL', 'hermes-engine',
+SERVICES_TO_MONITOR = ['llama-server@Qwen3.5-9B-UD-Q6_K_XL', 'hermes-engine',
                        'hermes-gateway', 'hermes-dashboard', 'hermes-webui',
-                       'hardware-monitor', 'frigate']
+                       'hermes-sysmon', 'frigate']
 _systemd_cache = []
 _systemd_cache_time = 0
 
@@ -789,6 +789,18 @@ def _collect_systemd():
         return _systemd_cache
     services = []
     for name in SERVICES_TO_MONITOR:
+        if name == 'frigate':
+            # Frigate runs as a Docker container (docker-compose), NOT a
+            # systemd unit — systemctl --user is-active always reports
+            # "inactive". Query the container state directly instead.
+            try:
+                r = subprocess.run(['docker', 'inspect', '-f', '{{.State.Status}}', 'frigate'],
+                                   capture_output=True, text=True, timeout=5)
+                is_active = r.stdout.strip() == 'running'
+                services.append({'name': name, 'active': is_active, 'enabled': True})
+            except Exception:
+                services.append({'name': name, 'active': False, 'enabled': False})
+            continue
         try:
             r = subprocess.run(['systemctl', '--user', 'is-active', name],
                                capture_output=True, text=True, timeout=3)
