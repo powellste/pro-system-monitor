@@ -284,6 +284,22 @@ var RV = {
     if(n < 1048576) return (n/1024).toFixed(1) + ' KB';
     return (n/1048576).toFixed(1) + ' MB';
   },
+  fmtDur: function(sec){
+    if(sec == null || !isFinite(sec)) return '';
+    sec = Number(sec);
+    if(sec < 60) return Math.round(sec) + 's';
+    if(sec < 3600) return Math.round(sec/60) + 'm';
+    if(sec < 86400) return (sec/3600).toFixed(1) + 'h';
+    return (sec/86400).toFixed(1) + 'd';
+  },
+  beatBadge: function(ageSec){
+    // heartbeat freshness: <2m alive, <10m slow, <30m stale, else dead
+    if(ageSec == null || !isFinite(ageSec)) return '<span class="tag" style="background:var(--danger-bg);color:var(--danger)">✖ no heartbeat</span>';
+    if(ageSec < 120) return '<span class="tag" style="background:var(--success-bg);color:var(--success)">♥ alive ' + RV.fmtDur(ageSec) + '</span>';
+    if(ageSec < 600) return '<span class="tag" style="background:var(--warning-bg);color:var(--warning)">♥ slow ' + RV.fmtDur(ageSec) + '</span>';
+    if(ageSec < 1800) return '<span class="tag" style="background:var(--warning-bg);color:var(--warning)">♥ stale ' + RV.fmtDur(ageSec) + '</span>';
+    return '<span class="tag" style="background:var(--danger-bg);color:var(--danger)">♥ dead ' + RV.fmtDur(ageSec) + '</span>';
+  },
   renderCompleted: function(items){
     document.getElementById('completedCount').textContent = items.length;
     document.getElementById('completedCount2').textContent = items.length;
@@ -523,6 +539,18 @@ var RV = {
     h += '<h4>Card</h4><div class="detail-block">' + esc(c.id)
       + ' · P' + esc(c.priority) + ' · ' + esc(c.assignee || '?') + ' · ' + esc(c.status || '')
       + (c.block_kind ? ' · block kind: ' + esc(c.block_kind) : '') + '</div>';
+    if(c.status === 'running'){
+      h += '<h4>Run status</h4><div class="detail-block">'
+        + (c.started_age_s != null ? '▶ started ' + RV.fmtDur(c.started_age_s) + ' ago<br>' : '')
+        + RV.beatBadge(c.beat_age_s) + '<br>'
+        + (c.worker_pid ? 'pid ' + esc(c.worker_pid) + '<br>' : '')
+        + (c.current_run_id ? 'run id ' + esc(c.current_run_id) + '<br>' : '')
+        + (c.max_runtime_seconds ? 'runtime cap ' + RV.fmtDur(c.max_runtime_seconds) + '<br>' : '')
+        + (c.run && c.run.profile ? 'profile ' + esc(c.run.profile) + '<br>' : '')
+        + (c.run && c.run.step_key ? 'step ' + esc(c.run.step_key) + '<br>' : '')
+        + (c.run && c.run.status ? 'run status ' + esc(c.run.status) : '')
+        + '</div>';
+    }
     if(c.block_reason) h += '<h4>Block reason</h4><div class="detail-block">🚫 ' + esc(c.block_reason) + '</div>';
     if(c.last_failure_error && c.last_failure_error !== c.block_reason)
       h += '<h4>Last failure</h4><div class="detail-block">' + esc(c.last_failure_error) + '</div>';
@@ -578,8 +606,22 @@ var RV = {
     items.forEach(function(c){
       html += '<div class="item"><div class="item-head"><span class="item-title">' + esc(c.title) + '</span>'
         + '<span class="tag ' + prioClass(c.priority) + '">P' + esc(c.priority) + '</span>'
-        + '<span class="tag">' + esc(c.assignee || '?') + '</span></div>'
-        + '<div class="muted">' + esc(c.id) + ' · ' + esc(c.status) + '</div></div>';
+        + '<span class="tag">' + esc(c.assignee || '?') + '</span>'
+        + (kind === 'running' ? RV.beatBadge(c.beat_age_s) : '')
+        + '</div>'
+        + '<div class="muted">' + esc(c.id)
+        + (kind === 'running'
+            ? (c.started_age_s != null ? ' · started ' + RV.fmtDur(c.started_age_s) + ' ago' : '')
+              + (c.worker_pid ? ' · pid ' + esc(c.worker_pid) : '')
+              + (c.current_run_id ? ' · run ' + esc(c.current_run_id) : '')
+              + (c.run && c.run.profile ? ' · ' + esc(c.run.profile) : '')
+              + (c.run && c.run.step_key ? ' · step ' + esc(c.run.step_key) : '')
+            : (c.created_age_s != null ? ' · queued ' + RV.fmtDur(c.created_age_s) + ' ago' : ''))
+        + '</div>'
+        + (kind === 'running' && c.last_comment ? '<div class="muted" style="margin-top:2px">💬 ' + esc(c.last_comment.slice(0,120)) + (c.last_comment.length>120?'…':'') + '</div>' : '')
+        + '<div class="item-actions" style="margin-top:6px">'
+        + '<button class="btn btn-link" onclick="RV.openCard(\'' + escAttr(c.id) + '\')">ℹ️ Details</button>'
+        + '</div></div>';
     });
     box.innerHTML = html;
   }

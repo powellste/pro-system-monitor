@@ -84,6 +84,19 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
+def _age_seconds(ts: Optional[Any], now_ts: float) -> Optional[int]:
+    """Age in seconds of a unix-epoch timestamp (or None when absent/invalid)."""
+    if ts is None:
+        return None
+    try:
+        v = int(ts)
+    except (TypeError, ValueError):
+        return None
+    if v <= 0:
+        return None
+    return max(0, int(now_ts - v))
+
+
 def _read_proposal_md(path: Path) -> Optional[Dict[str, Any]]:
     """Parse a vault item markdown file's frontmatter + body."""
     try:
@@ -306,15 +319,36 @@ def register_review_routes(app) -> None:
             )
 
         ready = _kanban_query(
-            "SELECT id, title, assignee, priority, status FROM tasks "
+            "SELECT id, title, assignee, priority, status, created_at FROM tasks "
             "WHERE status IN ('ready','todo') ORDER BY priority DESC LIMIT 20",
             board=board,
         )
+        now_ts = datetime.now(timezone.utc).timestamp()
+        for c in ready:
+            c["created_age_s"] = _age_seconds(c.get("created_at"), now_ts)
         running = _kanban_query(
-            "SELECT id, title, assignee, priority, status FROM tasks "
-            "WHERE status='running' ORDER BY priority DESC LIMIT 10",
+            "SELECT id, title, assignee, priority, status, created_at, started_at, "
+            "last_heartbeat_at, worker_pid, current_run_id, max_runtime_seconds "
+            "FROM tasks WHERE status='running' ORDER BY priority DESC LIMIT 10",
             board=board,
         )
+        for c in running:
+            c["last_comment"] = _card_last_comment(c["id"], board)
+            c["started_age_s"] = _age_seconds(c.get("started_at"), now_ts)
+            c["beat_age_s"] = _age_seconds(c.get("last_heartbeat_at"), now_ts)
+            run = _kanban_query(
+                "SELECT profile, step_key, status, started_at, last_heartbeat_at "
+                "FROM task_runs WHERE task_id=? ORDER BY id DESC LIMIT 1",
+                (c["id"],),
+                board,
+            )
+            c["run"] = run[0] if run else {}
+            if c["run"].get("last_heartbeat_at"):
+                c["run"]["beat_age_s"] = _age_seconds(
+                    c["run"]["last_heartbeat_at"], now_ts
+                )
+            else:
+                c["run"]["beat_age_s"] = None
         completed = _kanban_query(
             "SELECT id, title, assignee, priority, status, created_at, "
             "completed_at, result FROM tasks WHERE status='done' "
@@ -412,7 +446,9 @@ def register_review_routes(app) -> None:
         board = _resolve_board()
         rows = _kanban_query(
             "SELECT id, title, assignee, priority, status, block_kind, "
-            "last_failure_error, body, created_at FROM tasks WHERE id=?",
+            "last_failure_error, body, created_at, started_at, last_heartbeat_at, "
+            "worker_pid, current_run_id, max_runtime_seconds, result "
+            "FROM tasks WHERE id=?",
             (card_id,),
             board,
         )
@@ -425,6 +461,23 @@ def register_review_routes(app) -> None:
             or (c.pop("last_failure_error", "") or "")
         )
         c["comments"] = _card_comments(card_id, board=board)
+        now_ts = datetime.now(timezone.utc).timestamp()
+        c["started_age_s"] = _age_seconds(c.get("started_at"), now_ts)
+        c["beat_age_s"] = _age_seconds(c.get("last_heartbeat_at"), now_ts)
+        run = _kanban_query(
+            "SELECT profile, step_key, status, started_at, last_heartbeat_at, "
+            "outcome, summary, error FROM task_runs WHERE task_id=? "
+            "ORDER BY id DESC LIMIT 1",
+            (card_id,),
+            board,
+        )
+        c["run"] = run[0] if run else {}
+        if c["run"].get("last_heartbeat_at"):
+            c["run"]["beat_age_s"] = _age_seconds(
+                c["run"]["last_heartbeat_at"], now_ts
+            )
+        else:
+            c["run"]["beat_age_s"] = None
         return jsonify({"ok": True, "card": c})
 
     @app.get("/api/review/attachments/<task_id>/<path:filename>")
