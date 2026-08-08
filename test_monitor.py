@@ -1,14 +1,40 @@
 #!/usr/bin/env python3
 """Test script for hardware monitor - checks if monitor is running and collecting data"""
 
+import os
 import requests
 import sqlite3
 import time
 import sys
+from pathlib import Path
+
+
+def _api_key():
+    """Resolve MONITOR_API_KEY: env var first, then the systemd unit files.
+
+    The API is authenticated via the X-API-Key header (guard in
+    hardware_monitor_pro.py returns 401 when no key is set on the server and
+    the request carries none/wrong). Key value is never printed.
+    """
+    key = os.environ.get("MONITOR_API_KEY", "")
+    if key:
+        return key
+    for unit in ("hermes-sysmon.service", "hardware-monitor.service"):
+        p = Path.home() / ".config/systemd/user" / unit
+        try:
+            for line in p.read_text().splitlines():
+                line = line.strip()
+                if line.startswith("Environment=") and "MONITOR_API_KEY=" in line:
+                    return line.split("MONITOR_API_KEY=", 1)[1].strip().strip('"')
+        except OSError:
+            continue
+    return ""
+
 
 def test_monitor():
     """Test the hardware monitor API"""
     base_url = "http://localhost:5001"
+    headers = {"X-API-Key": _api_key()} if _api_key() else {}
     
     print("=" * 60)
     print("Hardware Monitor Diagnostic Test")
@@ -17,7 +43,7 @@ def test_monitor():
     # Test health endpoint
     print("\n1. Testing health endpoint...")
     try:
-        r = requests.get(f"{base_url}/api/health")
+        r = requests.get(f"{base_url}/api/health", headers=headers)
         if r.status_code == 200:
             health = r.json()
             print(f"   ✓ Monitor is running (uptime: {health.get('uptime', 'unknown')}s)")
@@ -31,7 +57,7 @@ def test_monitor():
     # Test status endpoint
     print("\n2. Testing status endpoint...")
     try:
-        r = requests.get(f"{base_url}/api/status")
+        r = requests.get(f"{base_url}/api/status", headers=headers)
         if r.status_code == 200:
             data = r.json()
             print(f"   ✓ Status retrieved")
@@ -48,7 +74,7 @@ def test_monitor():
     # Test history endpoint
     print("\n3. Testing history endpoint...")
     try:
-        r = requests.get(f"{base_url}/api/history?hours=1&limit=10")
+        r = requests.get(f"{base_url}/api/history?hours=1&limit=10", headers=headers)
         if r.status_code == 200:
             history = r.json()
             print(f"   ✓ History retrieved")

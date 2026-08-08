@@ -1,10 +1,37 @@
 #!/usr/bin/env python3
 """Test script to verify the API returns correct data structure"""
 
+import os
 import requests
 import json
+from pathlib import Path
 
 base_url = "http://localhost:5001"
+
+
+def _api_key():
+    """Resolve MONITOR_API_KEY: env var first, then the systemd unit files.
+
+    The API is authenticated via the X-API-Key header (guard in
+    hardware_monitor_pro.py returns 401 when no key is set on the server and
+    the request carries none/wrong). Key value is never printed.
+    """
+    key = os.environ.get("MONITOR_API_KEY", "")
+    if key:
+        return key
+    for unit in ("hermes-sysmon.service", "hardware-monitor.service"):
+        p = Path.home() / ".config/systemd/user" / unit
+        try:
+            for line in p.read_text().splitlines():
+                line = line.strip()
+                if line.startswith("Environment=") and "MONITOR_API_KEY=" in line:
+                    return line.split("MONITOR_API_KEY=", 1)[1].strip().strip('"')
+        except OSError:
+            continue
+    return ""
+
+
+_headers = {"X-API-Key": _api_key()} if _api_key() else {}
 
 print("=" * 60)
 print("Testing Hardware Monitor API")
@@ -13,7 +40,7 @@ print("=" * 60)
 # Test status endpoint
 print("\n1. Testing /api/status...")
 try:
-    r = requests.get(f"{base_url}/api/status")
+    r = requests.get(f"{base_url}/api/status", headers=_headers)
     data = r.json()
     print(f"   ✓ Status retrieved")
     print(f"   CPU Temp: {data.get('cpu_temps', {}).get('k10temp', 'N/A')}°C")
@@ -25,7 +52,7 @@ except Exception as e:
 # Test history endpoint
 print("\n2. Testing /api/history...")
 try:
-    r = requests.get(f"{base_url}/api/history?hours=1&limit=5")
+    r = requests.get(f"{base_url}/api/history?hours=1&limit=5", headers=_headers)
     history = r.json()
     print(f"   ✓ History retrieved")
     print(f"   Total records: {history.get('total_records', 0)}")
