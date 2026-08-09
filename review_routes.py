@@ -188,6 +188,157 @@ def _card_llm(card: Dict[str, Any], profile_models: Dict[str, Dict[str, str]]) -
     }
 
 
+# ---------------------------------------------------------------------------
+# Actual model usage per worker session (from each profile's state.db)
+#
+# Hermes records real LLM usage in <profile>/state.db -> session_model_usage:
+#   session_id | model | billing_provider | billing_base_url | api_call_count |
+#   input_tokens | output_tokens | estimated_cost_usd | first_seen | last_seen
+# The kanban task_runs.metadata carries worker_session_id (stamped at
+# completion), so a finished card can be joined to the exact session that ran
+# it. For a RUNNING card the session id is not stamped yet, so we match the
+# profile's most recently-active session (last_seen within the last 5 min) —
+# that is the live worker. This also surfaces real fallbacks: if the primary
+# provider was down and the worker fell back to the local llama-server, the
+# actual model/provider/base_url differ from the configured card LLM.
+# ---------------------------------------------------------------------------
+
+_SESSION_USAGE_CACHE: Dict[str, Dict[str, Dict[str, Any]]] = {}
+_SESSION_USAGE_TS: Dict[str, float] = {}
+
+
+def _load_session_usage(profile: str) -> Dict[str, Dict[str, Any]]:
+    """Map session_id -> aggregated actual usage for one worker profile.
+
+    Aggregates all rows per session (main + approval + compression tasks);
+    the dominant model row (by api_call_count) provides model/provider/base_url.
+    Cached 15s per profile — short enough to track a live worker's tokens.
+    """
+    global _SESSION_USAGE_CACHE, _SESSION_USAGE_TS
+    now = datetime.now(timezone.utc).timestamp()
+    if profile in _SESSION_USAGE_CACHE and now - _SESSION_USAGE_TS.get(profile, 0.0) < 15:
+        return _SESSION_USAGE_CACHE[profile]
+    out: Dict[str, Dict[str, Any]] = {}
+    state_db = HERMES_HOME / "profiles" / profile / "state.db"
+    if not state_db.is_file():
+        state_db = HERMES_HOME / "state.db"  # default profile
+    if not state_db.is_file():
+        _SESSION_USAGE_CACHE[profile] = out
+        _SESSION_USAGE_TS[profile] = now
+        return out
+    try:
+        con = sqlite3.connect(f"file:{state_db}?mode=ro", uri=True, timeout=5)
+        con.row_factory = sqlite3.Row
+        rows = con.execute(
+            "SELECT session_id, model, billing_provider, billing_base_url, "
+            "api_call_count, input_tokens, output_tokens, estimated_cost_usd, "
+            "first_seen, last_seen FROM session_model_usage"
+        ).fetchall()
+        con.close()
+    except sqlite3.Error:
+        _SESSION_USAGE_CACHE[profile] = out
+        _SESSION_USAGE_TS[profile] = now
+        return out
+    agg: Dict[str, Dict[str, Any]] = {}
+    for r in rows:
+        sid = r["session_id"] or ""
+        if not sid:
+            continue
+        a = agg.setdefault(
+            sid,
+            {
+                "model": "",
+                "provider": "",
+                "base_url": "",
+                "api_call_count": 0,
+                "input_tokens": 0,
+                "output_tokens": 0,
+                "cost": 0.0,
+                "first_seen": None,
+                "last_seen": None,
+            },
+        )
+        a["api_call_count"] += r["api_call_count"] or 0
+        a["input_tokens"] += r["input_tokens"] or 0
+        a["output_tokens"] += r["output_tokens"] or 0
+        a["cost"] += r["estimated_cost_usd"] or 0.0
+        if r["first_seen"] and (a["first_seen"] is None or r["first_seen"] < a["first_seen"]):
+            a["first_seen"] = r["first_seen"]
+        if r["last_seen"] and (a["last_seen"] is None or r["last_seen"] > a["last_seen"]):
+            a["last_seen"] = r["last_seen"]
+        # dominant model row: most api calls in this session
+        if r["api_call_count"] and r["api_call_count"] >= a.get("_dom_calls", 0):
+            a["_dom_calls"] = r["api_call_count"]
+            a["model"] = r["model"]
+            a["provider"] = r["billing_provider"] or ""
+            a["base_url"] = r["billing_base_url"] or ""
+    for a in agg.values():
+        a.pop("_dom_calls", None)
+        a["local"] = (
+            "local"
+            if (a["provider"] == "custom" or "127.0.0.1" in (a["base_url"] or "") or "localhost" in (a["base_url"] or ""))
+            else ""
+        )
+    out = agg
+    _SESSION_USAGE_CACHE[profile] = out
+    _SESSION_USAGE_TS[profile] = now
+    return out
+
+
+def _active_worker_usage(profile: str, now_ts: float, max_idle_s: float = 300.0) -> Optional[Dict[str, Any]]:
+    """Actual usage of the currently-live session for a running worker profile.
+
+    Returns the aggregated usage of the session whose last_seen is most recent
+    and within max_idle_s of now (a running worker heartbeats LLM calls every
+    few seconds; 5 min covers dispatch + prompt-build gaps). None if idle.
+    """
+    usage = _load_session_usage(profile)
+    best: Optional[Dict[str, Any]] = None
+    for u in usage.values():
+        if not u.get("last_seen"):
+            continue
+        if now_ts - u["last_seen"] > max_idle_s:
+            continue
+        if best is None or u["last_seen"] > best["last_seen"]:
+            best = u
+    return best
+
+
+def _attach_actual_llm(card: Dict[str, Any], profile_models: Dict[str, Dict[str, str]]) -> None:
+    """Merge llm.actual into a card dict (running or completed).
+
+    - Running card: active session usage for the run profile.
+    - Completed card: exact worker_session_id from run metadata (caller sets
+      card["_worker_session_id"]).
+    Falls back to configured llm when no usage row exists yet. Also sets
+    llm.fell_back = true when actual model != configured model.
+    """
+    cfg = card.get("llm") or {}
+    actual: Optional[Dict[str, Any]] = None
+    run = card.get("run") or {}
+    profile = run.get("profile") or card.get("assignee") or ""
+    now_ts = datetime.now(timezone.utc).timestamp()
+    sid = card.get("_worker_session_id") or ""
+    if sid:
+        actual = (_load_session_usage(profile) or {}).get(sid)
+    if actual is None and profile:
+        actual = _active_worker_usage(profile, now_ts)
+    if actual:
+        cfg = dict(cfg)
+        cfg["actual"] = {
+            "model": actual.get("model", ""),
+            "provider": actual.get("provider", ""),
+            "local": actual.get("local", ""),
+            "api_call_count": actual.get("api_call_count", 0),
+            "input_tokens": actual.get("input_tokens", 0),
+            "output_tokens": actual.get("output_tokens", 0),
+            "cost": actual.get("cost", 0.0),
+        }
+        if actual.get("model") and cfg.get("model") and actual["model"] != cfg["model"]:
+            cfg["fell_back"] = True
+    card["llm"] = cfg
+
+
 def _read_proposal_md(path: Path) -> Optional[Dict[str, Any]]:
     """Parse a vault item markdown file's frontmatter + body."""
     try:
@@ -445,6 +596,7 @@ def register_review_routes(app) -> None:
                 )
             else:
                 c["run"]["beat_age_s"] = None
+            _attach_actual_llm(c, profile_models)
         completed = _kanban_query(
             "SELECT id, title, assignee, priority, status, created_at, "
             "completed_at, result FROM tasks WHERE status='done' "
@@ -471,6 +623,9 @@ def register_review_routes(app) -> None:
             c["attachments"] = _card_attachments(c["id"], board)
             c["created_at"] = c.get("created_at") or ""
             c["completed_at"] = c.get("completed_at") or ""
+            c["_worker_session_id"] = str(meta.get("worker_session_id") or "")
+            c["llm"] = _card_llm(c, profile_models)
+            _attach_actual_llm(c, profile_models)
         return jsonify({"gate": gate, "blocked": blocked,
                         "ready": ready, "running": running,
                         "completed": completed,
@@ -564,7 +719,7 @@ def register_review_routes(app) -> None:
         c["beat_age_s"] = _age_seconds(c.get("last_heartbeat_at"), now_ts)
         run = _kanban_query(
             "SELECT profile, step_key, status, started_at, last_heartbeat_at, "
-            "outcome, summary, error FROM task_runs WHERE task_id=? "
+            "outcome, summary, error, metadata FROM task_runs WHERE task_id=? "
             "ORDER BY id DESC LIMIT 1",
             (card_id,),
             board,
@@ -576,6 +731,14 @@ def register_review_routes(app) -> None:
             )
         else:
             c["run"]["beat_age_s"] = None
+        run_meta = c["run"].get("metadata") or {}
+        if isinstance(run_meta, str):
+            try:
+                run_meta = json.loads(run_meta)
+            except (json.JSONDecodeError, TypeError):
+                run_meta = {}
+        c["_worker_session_id"] = str(run_meta.get("worker_session_id") or "")
+        _attach_actual_llm(c, _load_profile_models())
         return jsonify({"ok": True, "card": c})
 
     @app.get("/api/review/attachments/<task_id>/<path:filename>")

@@ -51,6 +51,7 @@
     .tag.p1{background:var(--warning-bg);color:var(--warning)}
     .tag.high{background:var(--danger-bg);color:var(--danger)}
     .tag.med{background:var(--warning-bg);color:var(--warning)}
+    .tag.warn-llm{background:var(--warning-bg);color:var(--warning);font-weight:600}
     .item-body{color:var(--text-2);font-size:.84rem;margin:4px 0 8px;white-space:pre-wrap;word-break:break-word}
     .item-body.clamped{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
     .item-actions{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
@@ -548,6 +549,7 @@ var RV = {
         + (c.max_runtime_seconds ? 'runtime cap ' + RV.fmtDur(c.max_runtime_seconds) + '<br>' : '')
         + (c.run && c.run.profile ? 'profile ' + esc(c.run.profile) + '<br>' : '')
         + (c.llm && c.llm.model ? 'llm ' + RV.llmBadge(c.llm) + '<br>' : '')
+        + (c.llm && c.llm.actual ? RV.llmUsageLine(c.llm) + '<br>' : '')
         + (c.run && c.run.step_key ? 'step ' + esc(c.run.step_key) + '<br>' : '')
         + (c.run && c.run.status ? 'run status ' + esc(c.run.status) : '')
         + '</div>';
@@ -601,9 +603,34 @@ var RV = {
   },
   llmBadge: function(llm){
     if(!llm || !llm.model) return '';
-    var icon = (llm.local ? '💻' : '🧠');
-    return '<span class="tag" title="provider: ' + esc(llm.provider || '?') + '">'
-      + icon + ' ' + esc(llm.model) + '</span>';
+    // actual model served (from session_model_usage) beats the configured one;
+    // a fallback marker shows when the live worker diverged from config.
+    var act = llm.actual;
+    var icon = (act && act.local ? '💻' : (llm.local ? '💻' : '🧠'));
+    var model = (act && act.model) ? act.model : llm.model;
+    var title = 'configured: ' + esc(llm.provider || '?') + '/' + esc(llm.model);
+    if(act && act.model && act.model !== llm.model){
+      title += ' · ACTUAL: ' + esc(act.provider || '?') + '/' + esc(act.model)
+        + (act.api_call_count ? ' · ' + act.api_call_count + ' calls' : '');
+    }
+    var cls = (act && act.model && act.model !== llm.model) ? 'tag warn-llm' : 'tag';
+    return '<span class="' + cls + '" title="' + title + '">'
+      + icon + ' ' + esc(model)
+      + (act && act.model && act.model !== llm.model ? ' ⇄' : '')
+      + '</span>';
+  },
+  llmUsageLine: function(llm){
+    if(!llm || !llm.actual) return '';
+    var a = llm.actual;
+    var bits = [];
+    if(a.api_call_count) bits.push(a.api_call_count + ' calls');
+    if(a.input_tokens || a.output_tokens){
+      bits.push((a.input_tokens||0).toLocaleString() + ' in / ' + (a.output_tokens||0).toLocaleString() + ' out tok');
+    }
+    if(a.cost) bits.push('$' + a.cost.toFixed(4));
+    if(!bits.length) return '';
+    var where = (a.local ? 'local' : (a.provider || '?')) + ':' + esc(a.model || '?');
+    return '<div class="muted" style="margin-top:2px">⚡ live usage — ' + where + ' — ' + bits.join(' · ') + '</div>';
   },
   renderList: function(kind, items, compact){
     document.getElementById(kind + 'Count').textContent = items.length;
@@ -626,6 +653,7 @@ var RV = {
               + (c.run && c.run.step_key ? ' · step ' + esc(c.run.step_key) : '')
             : (c.created_age_s != null ? ' · queued ' + RV.fmtDur(c.created_age_s) + ' ago' : ''))
         + '</div>'
+        + (kind === 'running' && c.llm ? RV.llmUsageLine(c.llm) : '')
         + (kind === 'running' && c.last_comment ? '<div class="muted" style="margin-top:2px">💬 ' + esc(c.last_comment.slice(0,120)) + (c.last_comment.length>120?'…':'') + '</div>' : '')
         + '<div class="item-actions" style="margin-top:6px">'
         + '<button class="btn btn-link" onclick="RV.openCard(\'' + escAttr(c.id) + '\')">ℹ️ Details</button>'
