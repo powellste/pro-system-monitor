@@ -547,6 +547,7 @@ var RV = {
         + (c.current_run_id ? 'run id ' + esc(c.current_run_id) + '<br>' : '')
         + (c.max_runtime_seconds ? 'runtime cap ' + RV.fmtDur(c.max_runtime_seconds) + '<br>' : '')
         + (c.run && c.run.profile ? 'profile ' + esc(c.run.profile) + '<br>' : '')
+        + (c.llm && c.llm.model ? 'llm ' + RV.llmBadge(c.llm) + '<br>' : '')
         + (c.run && c.run.step_key ? 'step ' + esc(c.run.step_key) + '<br>' : '')
         + (c.run && c.run.status ? 'run status ' + esc(c.run.status) : '')
         + '</div>';
@@ -598,6 +599,12 @@ var RV = {
   closeModal: function(){
     document.getElementById('modalOverlay').classList.remove('show');
   },
+  llmBadge: function(llm){
+    if(!llm || !llm.model) return '';
+    var icon = (llm.local ? '💻' : '🧠');
+    return '<span class="tag" title="provider: ' + esc(llm.provider || '?') + '">'
+      + icon + ' ' + esc(llm.model) + '</span>';
+  },
   renderList: function(kind, items, compact){
     document.getElementById(kind + 'Count').textContent = items.length;
     var box = document.getElementById(kind + 'List');
@@ -607,6 +614,7 @@ var RV = {
       html += '<div class="item"><div class="item-head"><span class="item-title">' + esc(c.title) + '</span>'
         + '<span class="tag ' + prioClass(c.priority) + '">P' + esc(c.priority) + '</span>'
         + '<span class="tag">' + esc(c.assignee || '?') + '</span>'
+        + RV.llmBadge(c.llm)
         + (kind === 'running' ? RV.beatBadge(c.beat_age_s) : '')
         + '</div>'
         + '<div class="muted">' + esc(c.id)

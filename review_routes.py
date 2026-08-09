@@ -97,6 +97,97 @@ def _age_seconds(ts: Optional[Any], now_ts: float) -> Optional[int]:
     return max(0, int(now_ts - v))
 
 
+# ---------------------------------------------------------------------------
+# Profile -> LLM resolution (which model a worker profile runs on)
+# ---------------------------------------------------------------------------
+
+_PROFILE_MODELS_CACHE: Dict[str, Dict[str, str]] = {}
+_PROFILE_MODELS_TS = 0.0
+
+
+def _load_profile_models() -> Dict[str, Dict[str, str]]:
+    """Map profile name -> {model, provider, local} by reading profile config.yaml.
+
+    Effective model rules (mirror the dispatcher's semantics):
+      - a card's model_override/provider_override wins when set (handled by caller)
+      - otherwise the assignee profile's model.default + model.provider
+      - a provider of 'custom' (or a fallback_providers entry with base_url on
+        127.0.0.1 / localhost) is flagged local=true so the UI can show 🧠 vs 💻
+    Cached 30s; profiles change rarely and the page polls every 30s anyway.
+    """
+    global _PROFILE_MODELS_CACHE, _PROFILE_MODELS_TS
+    now = datetime.now(timezone.utc).timestamp()
+    if _PROFILE_MODELS_CACHE and now - _PROFILE_MODELS_TS < 30:
+        return _PROFILE_MODELS_CACHE
+    out: Dict[str, Dict[str, str]] = {}
+    profiles_dir = HERMES_HOME / "profiles"
+    if profiles_dir.is_dir():
+        for pdir in sorted(profiles_dir.iterdir()):
+            cfg = pdir / "config.yaml"
+            if not cfg.is_file():
+                continue
+            try:
+                text = cfg.read_text(encoding="utf-8")
+            except OSError:
+                continue
+            model = provider = ""
+            local = False
+            # naive YAML-lite parse: model: / default: / provider: under model:
+            in_model = False
+            for line in text.splitlines():
+                stripped = line.strip()
+                if stripped.startswith("model:"):
+                    in_model = True
+                    continue
+                if in_model:
+                    if stripped and not stripped.startswith(("#", "-")):
+                        if stripped.startswith("provider:"):
+                            provider = stripped.split(":", 1)[1].strip().strip("'\"")
+                            if provider == "custom":
+                                local = True
+                        elif stripped.startswith("default:"):
+                            model = stripped.split(":", 1)[1].strip().strip("'\"")
+                        elif stripped.startswith("fallback") or stripped.startswith("auxiliary"):
+                            break
+                    if ":" not in stripped and stripped:
+                        break
+            # fallback_providers exists but is NOT the effective model — the badge
+            # must show what the worker is configured to run on, not the fallback.
+            # (A fallback only becomes effective when the primary provider is down,
+            # which this read-only view cannot know; local is only true when the
+            # effective provider is 'custom' i.e. the local llama-server.)
+            if model:
+                out[pdir.name] = {
+                    "model": model,
+                    "provider": provider or "?",
+                    "local": "local" if local else "",
+                }
+    _PROFILE_MODELS_CACHE = out
+    _PROFILE_MODELS_TS = now
+    return out
+
+
+def _card_llm(card: Dict[str, Any], profile_models: Dict[str, Dict[str, str]]) -> Dict[str, str]:
+    """Resolve which LLM a card runs on: override > profile default.
+
+    Returns {model, provider, local} ready for display.
+    """
+    ov_model = (card.get("model_override") or "").strip()
+    ov_provider = (card.get("provider_override") or "").strip()
+    if ov_model and ov_model != "none":
+        return {
+            "model": ov_model,
+            "provider": ov_provider or "?",
+            "local": "local" if ov_provider == "custom" else "",
+        }
+    pm = profile_models.get(card.get("assignee") or "", {})
+    return {
+        "model": pm.get("model", ""),
+        "provider": pm.get("provider", ""),
+        "local": pm.get("local", ""),
+    }
+
+
 def _read_proposal_md(path: Path) -> Optional[Dict[str, Any]]:
     """Parse a vault item markdown file's frontmatter + body."""
     try:
@@ -319,16 +410,20 @@ def register_review_routes(app) -> None:
             )
 
         ready = _kanban_query(
-            "SELECT id, title, assignee, priority, status, created_at FROM tasks "
+            "SELECT id, title, assignee, priority, status, created_at, "
+            "model_override, provider_override FROM tasks "
             "WHERE status IN ('ready','todo') ORDER BY priority DESC LIMIT 20",
             board=board,
         )
         now_ts = datetime.now(timezone.utc).timestamp()
+        profile_models = _load_profile_models()
         for c in ready:
             c["created_age_s"] = _age_seconds(c.get("created_at"), now_ts)
+            c["llm"] = _card_llm(c, profile_models)
         running = _kanban_query(
             "SELECT id, title, assignee, priority, status, created_at, started_at, "
-            "last_heartbeat_at, worker_pid, current_run_id, max_runtime_seconds "
+            "last_heartbeat_at, worker_pid, current_run_id, max_runtime_seconds, "
+            "model_override, provider_override "
             "FROM tasks WHERE status='running' ORDER BY priority DESC LIMIT 10",
             board=board,
         )
@@ -336,6 +431,7 @@ def register_review_routes(app) -> None:
             c["last_comment"] = _card_last_comment(c["id"], board)
             c["started_age_s"] = _age_seconds(c.get("started_at"), now_ts)
             c["beat_age_s"] = _age_seconds(c.get("last_heartbeat_at"), now_ts)
+            c["llm"] = _card_llm(c, profile_models)
             run = _kanban_query(
                 "SELECT profile, step_key, status, started_at, last_heartbeat_at "
                 "FROM task_runs WHERE task_id=? ORDER BY id DESC LIMIT 1",
@@ -447,7 +543,8 @@ def register_review_routes(app) -> None:
         rows = _kanban_query(
             "SELECT id, title, assignee, priority, status, block_kind, "
             "last_failure_error, body, created_at, started_at, last_heartbeat_at, "
-            "worker_pid, current_run_id, max_runtime_seconds, result "
+            "worker_pid, current_run_id, max_runtime_seconds, result, "
+            "model_override, provider_override "
             "FROM tasks WHERE id=?",
             (card_id,),
             board,
@@ -456,6 +553,7 @@ def register_review_routes(app) -> None:
             return jsonify({"ok": False, "error": "card not found"}), 404
         c = rows[0]
         c["last_comment"] = _card_last_comment(c["id"], board)
+        c["llm"] = _card_llm(c, _load_profile_models())
         c["block_reason"] = (
             _card_block_reason(c["id"], board)
             or (c.pop("last_failure_error", "") or "")
