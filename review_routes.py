@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sqlite3
 import subprocess
 from datetime import datetime, timezone
@@ -256,6 +257,7 @@ def _load_session_usage(profile: str) -> Dict[str, Dict[str, Any]]:
                 "cost": 0.0,
                 "first_seen": None,
                 "last_seen": None,
+                "_start_ts": _session_id_start_ts(sid),
             },
         )
         a["api_call_count"] += r["api_call_count"] or 0
@@ -285,14 +287,57 @@ def _load_session_usage(profile: str) -> Dict[str, Dict[str, Any]]:
     return out
 
 
-def _active_worker_usage(profile: str, now_ts: float, max_idle_s: float = 300.0) -> Optional[Dict[str, Any]]:
-    """Actual usage of the currently-live session for a running worker profile.
+def _session_id_start_ts(session_id: str) -> Optional[float]:
+    """Local-time start of a Hermes session id (`YYYYMMDD_HHMMSS_xxxx`).
 
-    Returns the aggregated usage of the session whose last_seen is most recent
-    and within max_idle_s of now (a running worker heartbeats LLM calls every
-    few seconds; 5 min covers dispatch + prompt-build gaps). None if idle.
+    Hermes session ids embed the session start time (local). A kanban worker
+    session starts ~1-2s after the dispatcher claims the run, so this lets us
+    disambiguate which of several concurrent same-profile sessions belongs to
+    a given running card. Returns epoch seconds or None if unparseable.
+    """
+    try:
+        m = re.match(r"^(\d{8})_(\d{6})_", session_id or "")
+        if not m:
+            return None
+        dt = datetime.strptime(m.group(1) + "_" + m.group(2), "%Y%m%d_%H%M%S")
+        return dt.timestamp()
+    except (ValueError, TypeError):
+        return None
+
+
+def _active_worker_usage(profile: str, now_ts: float, max_idle_s: float = 300.0,
+                         run_started_at: Optional[float] = None) -> Optional[Dict[str, Any]]:
+    """Actual usage of the live session for a running worker profile.
+
+    With several concurrent workers on the same profile, pick the session whose
+    id-encoded start time is closest to the run's started_at (they match within
+    ~1-2s). Falls back to the most recently-active session when no session id
+    timestamp matches the run start (or none given) — a running worker
+    heartbeats LLM calls every few seconds; 5 min covers dispatch +
+    prompt-build gaps. None if idle.
     """
     usage = _load_session_usage(profile)
+    if not usage:
+        return None
+    if run_started_at is not None:
+        # candidate sessions: active within max_idle_s AND start-timestamped
+        # within a plausible window of the run start (dispatch can lag a few
+        # seconds; never more than a few minutes).
+        cands = []
+        for u in usage.values():
+            if not u.get("last_seen"):
+                continue
+            if now_ts - u["last_seen"] > max_idle_s:
+                continue
+            st = u.get("_start_ts")
+            if st is None:
+                continue
+            delta = abs(st - run_started_at)
+            if delta <= 300.0:  # 5 min: covers slow dispatch + session boot
+                cands.append((delta, u))
+        if cands:
+            cands.sort(key=lambda t: t[0])
+            return cands[0][1]
     best: Optional[Dict[str, Any]] = None
     for u in usage.values():
         if not u.get("last_seen"):
@@ -322,7 +367,8 @@ def _attach_actual_llm(card: Dict[str, Any], profile_models: Dict[str, Dict[str,
     if sid:
         actual = (_load_session_usage(profile) or {}).get(sid)
     if actual is None and profile:
-        actual = _active_worker_usage(profile, now_ts)
+        actual = _active_worker_usage(profile, now_ts,
+                                      run_started_at=run.get("started_at"))
     if actual:
         cfg = dict(cfg)
         cfg["actual"] = {
