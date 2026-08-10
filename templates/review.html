@@ -137,6 +137,7 @@
   <div class="tabs">
     <button class="tab active" id="tabBtn_live" onclick="RV.setTab('live')">Live <span class="tcnt" id="liveCount"></span></button>
     <button class="tab" id="tabBtn_completed" onclick="RV.setTab('completed')">✓ Completed <span class="tcnt" id="completedCount">0</span></button>
+    <button class="tab" id="tabBtn_judges" onclick="RV.setTab('judges')">⚖️ Judges <span class="tcnt" id="judgesCount"></span></button>
   </div>
 
   <!-- Tab: Live -->
@@ -173,6 +174,20 @@
       <h2>✓ Completed Work <span class="badge" id="completedCount2">0</span></h2>
       <div class="muted" style="margin-bottom:10px">Most recent 30 done cards — summaries, metadata, and attachments.</div>
       <div id="completedList"><div class="empty">Loading…</div></div>
+    </div>
+  </div>
+
+  <!-- Tab: Judges (R3 — judge-ranking ledger) -->
+  <div class="tabview" id="tabview_judges">
+    <div class="card">
+      <h2>⚖️ Judge Ranking <span class="badge" id="judgesCount2">0</span></h2>
+      <div class="muted" style="margin-bottom:10px">Per-judge track record from the engine's judge-ranking ledger — score (0–1), band, resolution stats, last-output age. <span id="judgesLedgerMeta"></span></div>
+      <div id="judgesList"><div class="empty">Loading judges…</div></div>
+    </div>
+    <div class="card">
+      <h2>🎯 Planner Accuracy <span class="badge" id="planAccCount">0</span></h2>
+      <div class="muted" style="margin-bottom:10px">Session planner hit rate per symbol pair (plan_accuracy.json).</div>
+      <div id="planAccList"><div class="empty">Loading…</div></div>
     </div>
   </div>
 </div>
@@ -219,6 +234,7 @@ var RV = {
         RV.setStatus('ok', 'Updated ' + new Date().toLocaleTimeString());
       })
       .catch(function(e){ RV.setStatus('err', 'Load failed: ' + e); });
+    RV.fetchJudges();
   },
   setStatus: function(state, text){
     var dot = document.getElementById('statusdot');
@@ -659,6 +675,98 @@ var RV = {
         + '<button class="btn btn-link" onclick="RV.openCard(\'' + escAttr(c.id) + '\')">ℹ️ Details</button>'
         + '</div></div>';
     });
+    box.innerHTML = html;
+  },
+
+  /* --- judges (R3: judge-ranking ledger) --- */
+  judges: {data: null},
+  fetchJudges: function(){
+    fetch('/api/review/judges', {headers: {'X-API-Key': API_KEY}})
+      .then(function(r){ return r.json(); })
+      .then(function(d){ RV.judges = d; RV.renderJudges(); })
+      .catch(function(e){ /* panel keeps last state on transient errors */ });
+  },
+  pct: function(x, digits){
+    if(x == null || !isFinite(x)) return '—';
+    return (Number(x) * 100).toFixed(digits == null ? 1 : digits) + '%';
+  },
+  judgeBadge: function(j){
+    // same .tag styling as the llm badges — 🟢 healthy / 🟡 low-N / 🔴 stale / ⚪ gated
+    var m = {
+      healthy: ['background:var(--success-bg);color:var(--success)', '🟢 healthy'],
+      'low-n':  ['background:var(--warning-bg);color:var(--warning)', '🟡 low-N'],
+      stale:    ['background:var(--danger-bg);color:var(--danger)', '🔴 stale'],
+      gated:    ['', '⚪ gated']
+    }[j.badge] || ['', '⚪ gated'];
+    return '<span class="tag"' + (m[0] ? ' style="' + m[0] + '"' : '') + '>' + m[1] + '</span>';
+  },
+  renderJudges: function(){
+    var box = document.getElementById('judgesList');
+    var countEl = document.getElementById('judgesCount');
+    if(!box) return;
+    var d = RV.judges;
+    if(!d || !d.ok){
+      if(countEl) countEl.textContent = '';
+      return;
+    }
+    var list = d.judges || [];
+    if(countEl) countEl.textContent = list.length;
+    document.getElementById('judgesCount2').textContent = list.length;
+    var meta = document.getElementById('judgesLedgerMeta');
+    if(meta){
+      var bnd = (d.config && d.config.binding_enabled) ? 'binding ENABLED' : 'binding disabled (advisory)';
+      meta.textContent = 'ledger ' + (d.ledger_generated_at ? esc(String(d.ledger_generated_at).slice(0,16)).replace('T',' ') + ' · ' : '')
+        + bnd + ' · stale >' + ((d.config && d.config.stale_hours) || 72) + 'h';
+    }
+    if(!list.length){ box.innerHTML = '<div class="empty">No judges in ledger</div>'; return; }
+    var html = '';
+    list.forEach(function(j){
+      var st = j.stats || {};
+      html += '<div class="item"><div class="item-head"><span class="item-title">' + esc(j.name) + '</span>'
+        + RV.judgeBadge(j)
+        + '<span class="tag">' + esc(j.band) + (j.binding ? ' · binding' : '') + '</span>'
+        + '<span class="tag" style="font-weight:700">score ' + RV.pct(j.judge_score, 0) + '</span>'
+        + '</div>'
+        + '<div class="muted">resolved ' + (st.N_resolved || 0)
+        + ' · executed ' + (st.N_executed || 0)
+        + ' · blocked ' + (st.N_blocked || 0)
+        + ' · skipped ' + (st.N_skipped || 0)
+        + ' · unresolved ' + (st.N_unresolved || 0)
+        + ' · closed ' + (st.N_closed || 0)
+        + '</div>'
+        + '<div class="muted">WR ' + RV.pct(j.wr)
+        + ' · PF ' + (j.pf == null ? '—' : Number(j.pf).toFixed(2))
+        + ' · resolution ' + RV.pct(j.resolution_rate, 0)
+        + ' · no-op ' + RV.pct(j.noop_rate, 0)
+        + ' · stale-rate ' + RV.pct(j.stale_rate, 0)
+        + '</div>'
+        + '<div class="muted">'
+        + (j.last_output_age_s != null ? 'last output ' + RV.fmtDur(j.last_output_age_s) + ' ago' : 'no signal yet')
+        + (j.last_signal_ts ? ' · ' + esc(String(j.last_signal_ts).slice(0,16)).replace('T',' ') : '')
+        + '</div></div>';
+    });
+    box.innerHTML = html;
+    RV.renderPlanAcc(d.planner_accuracy || {});
+  },
+  renderPlanAcc: function(pa){
+    var box = document.getElementById('planAccList');
+    if(!box) return;
+    var count = 0;
+    var html = '';
+    Object.keys(pa).forEach(function(pair){
+      if(pair === '__meta__') return;
+      var p = pa[pair] || {};
+      count++;
+      html += '<div class="item"><div class="item-head"><span class="item-title">' + esc(pair) + '</span>'
+        + '<span class="tag">hit-rate ' + RV.pct(p.hit_rate, 0) + '</span>'
+        + '<span class="tag">' + esc(p.hits || 0) + '/' + esc(p.total || 0) + '</span>'
+        + (p.dir_hit_rate != null ? '<span class="tag">dir ' + RV.pct(p.dir_hit_rate, 0) + '</span>' : '')
+        + (p.neutral_avoid_rate != null ? '<span class="tag">neutral-avoid ' + RV.pct(p.neutral_avoid_rate, 0) + '</span>' : '')
+        + '</div>'
+        + '<div class="muted">' + (p.updated ? 'updated ' + esc(String(p.updated).slice(0,16)).replace('T',' ') : '') + '</div></div>';
+    });
+    document.getElementById('planAccCount').textContent = count;
+    if(!count){ box.innerHTML = '<div class="empty">No planner accuracy data</div>'; return; }
     box.innerHTML = html;
   }
 };

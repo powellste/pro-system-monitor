@@ -61,6 +61,14 @@ VAULT_DIR = _BOARDS["pain-point"]["vault"]
 
 BOARD_SLUG = "pain-point"
 
+# Judge-ranking ledger + planner accuracy — read-only view of the trading
+# repo's data dir. The ledger is written by the engine
+# (engine/services/judge_ranking.py recompute + engine/signal_decision_log.py
+# event mirroring); the monitor never writes it.
+TRADING_REPO_DIR = Path.home() / "hermes-ai-trading-agent"
+JUDGE_LEDGER_PATH = TRADING_REPO_DIR / "data" / "judge_ranking.json"
+PLAN_ACCURACY_PATH = TRADING_REPO_DIR / "data" / "session_plans" / "plan_accuracy.json"
+
 
 def _resolve_board() -> str:
     """Resolve the active board slug from ?board= (or X-Board header)."""
@@ -96,6 +104,31 @@ def _age_seconds(ts: Optional[Any], now_ts: float) -> Optional[int]:
     if v <= 0:
         return None
     return max(0, int(now_ts - v))
+
+
+def _read_json_file(path: Path) -> Optional[Any]:
+    """Read a JSON file; None when missing or malformed (never raises)."""
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError, TypeError):
+        return None
+
+
+def _parse_iso_ts(iso: Optional[Any]) -> Optional[float]:
+    """Epoch seconds from an ISO-8601 timestamp (tz-aware or naive), else None.
+
+    Handles the ledger's `2026-08-10T02:59:38.410160+00:00` style and the
+    trailing-Z shorthand; naive timestamps are treated as UTC.
+    """
+    if not iso:
+        return None
+    try:
+        dt = datetime.fromisoformat(str(iso).replace("Z", "+00:00"))
+    except (ValueError, TypeError):
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.timestamp()
 
 
 # ---------------------------------------------------------------------------
@@ -821,3 +854,80 @@ def register_review_routes(app) -> None:
             download_name=rows[0]["filename"],
             max_age=0,
         )
+
+    @app.get("/api/review/judges")
+    def review_judges():
+        """Judge-ranking ledger (R3): read-only per-judge scores + planner accuracy.
+
+        Returns the engine's judge_ranking.json ledger enriched with live
+        last-output age (now - last signal timestamp) and staleness, plus the
+        session-planner accuracy per pair (plan_accuracy.json). Same
+        MONITOR_API_KEY auth as every other /api route.
+        """
+        ledger = _read_json_file(JUDGE_LEDGER_PATH)
+        if not isinstance(ledger, dict) or not isinstance(ledger.get("judges"), dict):
+            return jsonify({
+                "ok": False,
+                "error": "judge ledger not found",
+                "ledger_path": str(JUDGE_LEDGER_PATH),
+            }), 404
+        cfg = ledger.get("config_snapshot") or {}
+        if not isinstance(cfg, dict):
+            cfg = {}
+        try:
+            stale_hours = float(cfg.get("stale_hours", 72))
+        except (TypeError, ValueError):
+            stale_hours = 72.0
+        now_ts = datetime.now(timezone.utc).timestamp()
+        judges = []
+        for name, j in (ledger.get("judges") or {}).items():
+            if not isinstance(j, dict):
+                continue
+            last_ts = _parse_iso_ts(j.get("last_signal_ts"))
+            age_s = max(0.0, now_ts - last_ts) if last_ts is not None else None
+            stale = bool(j.get("stale"))
+            if not stale and age_s is not None:
+                stale = age_s > stale_hours * 3600.0
+            try:
+                score = float(j.get("judge_score") or 0.0)
+            except (TypeError, ValueError):
+                score = 0.0
+            band = str(j.get("band") or "advisory")
+            if stale:
+                badge, badge_label = "stale", "🔴"
+            elif score >= 0.6:
+                badge, badge_label = "healthy", "🟢"
+            elif band == "advisory":
+                badge, badge_label = "low-n", "🟡"
+            else:
+                badge, badge_label = "gated", "⚪"
+            judges.append({
+                "name": j.get("name") or name,
+                "key": name,
+                "band": band,
+                "binding": bool(j.get("binding")),
+                "judge_score": score,
+                "stale": stale,
+                "badge": badge,
+                "badge_label": badge_label,
+                "last_output_age_s": age_s,
+                "last_signal_ts": j.get("last_signal_ts"),
+                "updated": j.get("updated"),
+                "stats": j.get("stats") or {},
+                "wr": j.get("wr"),
+                "pf": j.get("pf"),
+                "credible_wr": j.get("credible_wr"),
+                "resolution_rate": j.get("resolution_rate"),
+                "noop_rate": j.get("noop_rate"),
+                "stale_rate": j.get("stale_rate"),
+            })
+        judges.sort(key=lambda x: -x["judge_score"])
+        plan_acc = _read_json_file(PLAN_ACCURACY_PATH)
+        return jsonify({
+            "ok": True,
+            "judges": judges,
+            "config": cfg,
+            "planner_accuracy": plan_acc if isinstance(plan_acc, dict) else {},
+            "ledger_generated_at": ledger.get("generated_at") or "",
+            "generated_at": _now_iso(),
+        })
