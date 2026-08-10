@@ -148,6 +148,9 @@
       <div id="gateList"><div class="empty">Loading proposals…</div></div>
     </div>
 
+    <!-- Judge-silence alert (R8) — red banner when any judge is silent -->
+    <div id="judgeAlerts" style="display:none"></div>
+
     <!-- Cards blocked -->
     <div class="card">
       <h2>📋 Cards Blocked — review required <span class="badge" id="blockedCount">0</span></h2>
@@ -277,9 +280,27 @@ var RV = {
     RV.renderList('running', RV.data.running || [], true);
     RV.renderList('ready', RV.data.ready || [], true);
     RV.renderCompleted(RV.data.completed || []);
+    RV.renderJudgeAlerts(RV.data.judge_alerts || []);
     var liveN = (RV.data.gate||[]).length + (RV.data.blocked||[]).length
               + (RV.data.running||[]).length + (RV.data.ready||[]).length;
     document.getElementById('liveCount').textContent = liveN;
+  },
+  /* R8: silent-judge alert banner (judge_alerts from /api/review/overview) */
+  renderJudgeAlerts: function(items){
+    var box = document.getElementById('judgeAlerts');
+    if(!box) return;
+    var list = items || [];
+    if(!list.length){ box.style.display = 'none'; box.innerHTML = ''; return; }
+    box.style.display = 'block';
+    box.innerHTML = '<div class="card" style="border-left:4px solid #e5534b;background:#3a1d1d">'
+      + '<h2>🔴 Silent Judges <span class="badge">' + list.length + '</span></h2>'
+      + '<div class="muted" style="margin-bottom:8px">No output past the staleness threshold (max 72h, TTL×2) — check engine logs for <code>JUDGE-SILENT</code>.</div>'
+      + list.map(function(a){
+          var age = a.never_output ? 'no output ever' : Math.round((a.age_s||0)/3600) + 'h';
+          var thr = a.threshold_s != null ? Math.round(a.threshold_s/3600) + 'h' : '?';
+          return '<div style="padding:4px 0;border-bottom:1px solid rgba(255,255,255,0.08)">'
+            + '<strong>' + a.name + '</strong> — last output ' + age + ' (threshold ' + thr + ')</div>';
+        }).join('') + '</div>';
   },
   setTab: function(name){
     document.querySelectorAll('.tab').forEach(function(b){ b.classList.remove('active'); });

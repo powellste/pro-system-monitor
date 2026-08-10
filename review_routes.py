@@ -131,6 +131,67 @@ def _parse_iso_ts(iso: Optional[Any]) -> Optional[float]:
     return dt.timestamp()
 
 
+# R8 per-judge TTL fallback map — mirrors
+# engine/services/judge_ranking.py DEFAULT_CONFIG.judge_ttl_seconds for
+# ledgers written before the engine persisted staleness_threshold_s/silent.
+# Judges absent here use 3600s (2h*2 < 72h, so the 72h horizon still wins).
+_JUDGE_TTL_FALLBACK = {
+    "trader_agent_v1": 5400,
+    "llm_signal": 1200,
+}
+
+
+def _judge_silence_alerts() -> list:
+    """R8: judges whose last output age exceeds max(stale_hours, TTL*2).
+
+    Reads the engine's judge-ranking ledger. Prefers the engine-persisted
+    ``silent``/``staleness_threshold_s`` fields; falls back to computing
+    silence here (age > max(stale_hours*3600, TTL*2)) for ledgers written
+    before the engine restart. Returns [] when the ledger is missing — the
+    overview must never break because the advisory ledger is absent.
+    """
+    ledger = _read_json_file(JUDGE_LEDGER_PATH)
+    if not isinstance(ledger, dict) or not isinstance(ledger.get("judges"), dict):
+        return []
+    cfg = ledger.get("config_snapshot") or {}
+    if not isinstance(cfg, dict):
+        cfg = {}
+    try:
+        stale_hours = float(cfg.get("stale_hours", 72))
+    except (TypeError, ValueError):
+        stale_hours = 72.0
+    now_ts = datetime.now(timezone.utc).timestamp()
+    alerts = []
+    for name, j in (ledger.get("judges") or {}).items():
+        if not isinstance(j, dict):
+            continue
+        last_ts = _parse_iso_ts(j.get("last_signal_ts"))
+        age_s = max(0, int(now_ts - last_ts)) if last_ts is not None else None
+        silent = bool(j.get("silent"))
+        thr_s = j.get("staleness_threshold_s")
+        try:
+            thr_s = int(thr_s) if thr_s is not None else None
+        except (TypeError, ValueError):
+            thr_s = None
+        if thr_s is None:
+            thr_s = int(max(stale_hours * 3600.0, 2 * _JUDGE_TTL_FALLBACK.get(name, 3600)))
+        if not silent and age_s is not None:
+            silent = age_s > thr_s
+        if not silent:
+            continue
+        alerts.append({
+            "name": j.get("name") or name,
+            "age_s": age_s,
+            "threshold_s": thr_s,
+            "never_output": last_ts is None,
+            "last_signal_ts": j.get("last_signal_ts"),
+            "badge": "stale",
+            "badge_label": "🔴",
+        })
+    alerts.sort(key=lambda a: (a["age_s"] is None, -(a["age_s"] or 0)))
+    return alerts
+
+
 # ---------------------------------------------------------------------------
 # Profile -> LLM resolution (which model a worker profile runs on)
 # ---------------------------------------------------------------------------
@@ -708,6 +769,8 @@ def register_review_routes(app) -> None:
         return jsonify({"gate": gate, "blocked": blocked,
                         "ready": ready, "running": running,
                         "completed": completed,
+                        # R8: silent judges surface in the overview alert list
+                        "judge_alerts": _judge_silence_alerts(),
                         "board": board,
                         "vault_dir": str(paths["vault"]),
                         "generated_at": _now_iso()})
