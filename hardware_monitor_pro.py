@@ -918,31 +918,28 @@ def _collect_frigate():
 _last_alert_notification = {}  # {alert_message_key: last_sent_time}
 
 def _send_alert_notification(alerts):
-    """Send critical alerts via Hermes gateway Telegram webhook."""
+    """Send critical alerts (and Disk warnings) via Hermes CLI to Telegram."""
     now = time.time()
     for alert in alerts:
-        if alert.get('severity') != 'critical':
+        if alert.get('severity') != 'critical' and alert.get('source') != 'Disk':
             continue
         key = f"{alert['source']}:{alert['message']}"
         if key in _last_alert_notification and now - _last_alert_notification[key] < 900:
             continue  # don't spam — once per 15min
         try:
             msg = f"🚨 *{alert['source']} CRITICAL*: {alert['message']}"
-            import urllib.parse
-            payload = json.dumps({
-                'text': msg,
-                'chat_id': None,  # gateway routes to home
-                'parse_mode': 'Markdown'
-            }).encode()
-            req = urllib.request.Request(
-                'http://localhost:8642/api/telegram/send',
-                data=payload,
-                headers={'Content-Type': 'application/json'},
-                method='POST'
+            res = subprocess.run(
+                ['/home/ste/.hermes/hermes-agent/venv/bin/hermes', 'send', '--to',
+                 'telegram', msg],
+                capture_output=True, text=True, timeout=15,
+                env={**os.environ, 'HOME': '/home/ste', 'HERMES_HOME': '/home/ste/.hermes'},
             )
-            urllib.request.urlopen(req, timeout=3)
-            _last_alert_notification[key] = now
-            print(f"[MONITOR] Notified: {msg}")
+            if res.returncode == 0:
+                _last_alert_notification[key] = now
+                print(f"[MONITOR] Notified: {msg}")
+            else:
+                print(f"[MONITOR] Alert notification failed (exit {res.returncode}): "
+                      f"{res.stderr.strip()[:200]}")
         except Exception as e:
             print(f"[MONITOR] Alert notification failed: {e}")
 
