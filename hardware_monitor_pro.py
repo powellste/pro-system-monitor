@@ -722,7 +722,6 @@ def _collect_trading_engine():
         if r.status == 200:
             result['alive'] = True
             health = json.loads(r.read())
-            result['uptime'] = health.get('uptime', 0)
             result['model'] = health.get('mode', 'paper')
             result['pairs'] = health.get('pairs', [])
             dq = health.get('data_quality', {})
@@ -732,6 +731,7 @@ def _collect_trading_engine():
         try:
             r = urllib.request.urlopen('http://localhost:5100/api/status', timeout=3)
             eng_status = json.loads(r.read())
+            result['uptime'] = eng_status.get('uptime', '0h 0m')
             result['balance'] = eng_status.get('balance', 0)
             result['equity'] = eng_status.get('equity', 0)
             result['daily_pnl'] = eng_status.get('daily_pnl', 0)
@@ -754,7 +754,7 @@ def _collect_trading_engine():
         try:
             r = urllib.request.urlopen('http://localhost:5100/api/strategies', timeout=3)
             strats = json.loads(r.read())
-            result['strategies'] = strats if isinstance(strats, list) else []
+            result['strategies'] = strats.get('strategies', []) if isinstance(strats, dict) else strats if isinstance(strats, list) else []
         except Exception:
             pass
         # Pairs & NAV
