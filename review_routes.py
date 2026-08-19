@@ -41,7 +41,11 @@ _BOARDS: Dict[str, Dict[str, Path]] = {
     # slug -> {"db": kanban db, "vault": item vault dir}
     "pain-point": {
         "db": HERMES_HOME / "kanban" / "boards" / "pain-point" / "kanban.db",
-        "vault": Path.home() / "hermes-multi-agent-workflow" / "work" / "vault" / "items",
+        # Direction proposals are written by the TRADING repo's
+        # synthesize_direction.py to ~/hermes-ai-trading-agent/work/vault/items
+        # (NOT the workflow repo vault — they diverged 2026-08-19 and approve
+        # failed with "file not found" until this was corrected).
+        "vault": Path.home() / "hermes-ai-trading-agent" / "work" / "vault" / "items",
     },
     "sp-photo": {
         "db": HERMES_HOME / "kanban" / "boards" / "sp-photo" / "kanban.db",
