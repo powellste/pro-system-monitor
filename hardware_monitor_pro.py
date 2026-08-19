@@ -83,6 +83,8 @@ CONFIG = {
     'alert_cpu_usage': float(os.environ.get('ALERT_CPU_USAGE', '85')),
     'alert_ram_percent': float(os.environ.get('ALERT_RAM_PERCENT', '85')),
     'alert_disk_percent': float(os.environ.get('ALERT_DISK_PERCENT', '90')),
+    'alert_disk_min_total_gb': float(os.environ.get('ALERT_DISK_MIN_TOTAL_GB', '20')),
+    'alert_disk_exclude_mounts': os.environ.get('ALERT_DISK_EXCLUDE_MOUNTS', ''),
     'alert_gpu_temp': float(os.environ.get('ALERT_GPU_TEMP', '80')),
     'alert_gpu_usage': float(os.environ.get('ALERT_GPU_USAGE', '95')),
 }
@@ -189,6 +191,21 @@ _llama_tps_data = {'prompt_tps': None, 'gen_tps': None,
 # ---------------------------------------------------------------------------
 # Alert rules
 # ---------------------------------------------------------------------------
+def _mount_excluded(mount, exclude_list):
+    """Return True if mount matches an entry in the comma-separated exclusion list.
+
+    Matches are exact mount paths or path prefixes, so an entry like
+    '/mnt/backup' also excludes '/mnt/backup/archive'. Empty list → nothing excluded.
+    """
+    for entry in exclude_list.split(','):
+        entry = entry.strip()
+        if not entry:
+            continue
+        if mount == entry or mount.startswith(entry.rstrip('/') + '/'):
+            return True
+    return False
+
+
 def _check_alerts(data):
     """Return list of active alerts."""
     alerts = []
@@ -224,6 +241,24 @@ def _check_alerts(data):
             'source': 'Disk',
             'message': f"Disk at {disk['percent']:.0f}% (threshold {CONFIG['alert_disk_percent']}%)"
         })
+    # Per-partition rule (Candidate B): same policy as root, applied to each
+    # mount in disk.partitions[]. Skips root ('/') — already covered above.
+    # Floor (ALERT_DISK_MIN_TOTAL_GB) blocks tiny static mounts (/recovery,
+    # /boot/efi) that sit at 90%+ forever; exclusions are an explicit escape
+    # hatch for big-but-static mounts.
+    for p in disk.get('partitions', []):
+        if p.get('mount') == '/':
+            continue
+        if p.get('total_gb', 0) < CONFIG['alert_disk_min_total_gb']:
+            continue
+        if _mount_excluded(p.get('mount', ''), CONFIG['alert_disk_exclude_mounts']):
+            continue
+        if p.get('percent', 0) > CONFIG['alert_disk_percent']:
+            alerts.append({
+                'severity': 'warning' if p['percent'] < 95 else 'critical',
+                'source': 'Disk',
+                'message': f"Disk {p['mount']} at {p['percent']:.0f}% (threshold {CONFIG['alert_disk_percent']}%, free {p['free_gb']}G)"
+            })
     for gpu in gpus:
         if gpu.get('temperature', 0) > CONFIG['alert_gpu_temp']:
             alerts.append({
