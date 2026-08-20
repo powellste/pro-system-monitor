@@ -810,7 +810,7 @@ def _collect_trading_engine():
 # ---------------------------------------------------------------------------
 # Systemd service health
 # ---------------------------------------------------------------------------
-SERVICES_TO_MONITOR = ['llama-server@Qwen3.5-9B-UD-Q6_K_XL', 'hermes-engine',
+SERVICES_TO_MONITOR = ['llama-server@Qwen3.6-35B-A3B-UD-Q4_K_M', 'hermes-engine',
                        'hermes-gateway', 'hermes-dashboard', 'hermes-webui',
                        'hermes-sysmon', 'frigate']
 _systemd_cache = []
