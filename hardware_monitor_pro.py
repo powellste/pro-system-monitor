@@ -7,6 +7,7 @@ Serves REST API + modern dashboard UI on port 5001.
 from flask import Flask, jsonify, render_template, request
 from flask_cors import CORS
 import psutil
+import requests
 import time
 import threading
 import json
@@ -948,35 +949,122 @@ def _collect_frigate():
     return result
 
 # ---------------------------------------------------------------------------
-# Alert notification via Hermes Gateway
+# Alert notification — in-process Telegram Bot API
+# (t_247a5fb9 Candidate A: replaces the `hermes send` CLI subprocess that
+# timed out under exactly the RAM pressure it reports — the subprocess spawned
+# a fresh ~19MB venv every 11s tick while the box was at 99%.)
 # ---------------------------------------------------------------------------
-_last_alert_notification = {}  # {alert_message_key: last_sent_time}
+def _load_dotenv_simple(path):
+    """Minimal KEY=VALUE .env reader (no external deps).
+
+    Same credential source as `hermes send` (~/.hermes/.env); the service
+    unit itself carries no TELEGRAM_* vars. Returns {} if unreadable.
+    """
+    env = {}
+    try:
+        with open(path) as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith('#') or '=' not in line:
+                    continue
+                k, _, v = line.partition('=')
+                k = k.strip()
+                v = v.strip()
+                if len(v) >= 2 and v[0] == v[-1] and v[0] in ('"', "'"):
+                    v = v[1:-1]
+                env[k] = v
+    except OSError:
+        pass
+    return env
+
+
+_TG_ENV = _load_dotenv_simple(os.path.expanduser('~/.hermes/.env'))
+# Env-var override first, then ~/.hermes/.env — same source hermes send uses.
+TELEGRAM_BOT_TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN') or _TG_ENV.get('TELEGRAM_BOT_TOKEN', '')
+TELEGRAM_HOME_CHANNEL = os.environ.get('TELEGRAM_HOME_CHANNEL') or _TG_ENV.get('TELEGRAM_HOME_CHANNEL', '')
+TELEGRAM_PROXY = os.environ.get('TELEGRAM_PROXY') or _TG_ENV.get('TELEGRAM_PROXY', '')
+
+_TELEGRAM_API_URL = 'https://api.telegram.org/bot{token}/sendMessage'
+
+
+def _telegram_send(text):
+    """Send a text message in-process via the Telegram Bot API (direct POST).
+
+    Raises on any failure so the caller can apply the 60s retry backoff.
+    Honors TELEGRAM_PROXY via requests `proxies=` when configured.
+    """
+    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_HOME_CHANNEL:
+        raise RuntimeError(
+            'TELEGRAM_BOT_TOKEN/TELEGRAM_HOME_CHANNEL not configured '
+            '(expected in ~/.hermes/.env or as env vars)')
+    proxies = None
+    if TELEGRAM_PROXY:
+        proxies = {'http': TELEGRAM_PROXY, 'https': TELEGRAM_PROXY}
+    resp = requests.post(
+        _TELEGRAM_API_URL.format(token=TELEGRAM_BOT_TOKEN),
+        json={'chat_id': TELEGRAM_HOME_CHANNEL,
+              'text': text,
+              'parse_mode': 'Markdown'},
+        timeout=10,
+        proxies=proxies,
+    )
+    resp.raise_for_status()
+    data = resp.json()
+    if not data.get('ok'):
+        raise RuntimeError(f"Telegram API error: {data.get('description', 'unknown')}")
+
+
+# {window_key: {'sent_at': float|None, 'last_attempt': float}}
+_last_alert_notification = {}
+
 
 def _send_alert_notification(alerts):
-    """Send critical alerts (and Disk warnings) via Hermes CLI to Telegram."""
+    """Send critical alerts (and Disk warnings) in-process to Telegram.
+
+    Gate (unchanged): critical severity only, except Disk alerts which are
+    forwarded at warning severity too (82d9eb7).
+
+    Dedup: window key f"{source}:{severity}:{int(now//900)}" — at most one
+    notification per source/severity per 15-min window. The old key embedded
+    the rounded RAM percent, so every percent churn (94→95→96…) re-sent and
+    re-spawned a subprocess.
+
+    Failure handling: the key is recorded on FAILURE too, with a 60s retry
+    backoff, so a failing alert can never re-fire every 11s tick under memory
+    pressure (the old CLI path did exactly that — the Aug 13 50%-delivery
+    incident).
+
+    Alert text is built from status_data['ram']['percent'], the same sample
+    the archive writer records (ram.percent in _background_collector), so the
+    notified number always matches the JSONL archive for that tick.
+    """
+    global _last_alert_notification
     now = time.time()
     for alert in alerts:
         if alert.get('severity') != 'critical' and alert.get('source') != 'Disk':
             continue
-        key = f"{alert['source']}:{alert['message']}"
-        if key in _last_alert_notification and now - _last_alert_notification[key] < 900:
-            continue  # don't spam — once per 15min
+        key = f"{alert['source']}:{alert.get('severity', 'critical')}:{int(now // 900)}"
+        state = _last_alert_notification.get(key)
+        if state:
+            if state.get('sent_at') is not None:
+                continue  # already delivered this 15-min window
+            if now - state.get('last_attempt', 0) < 60:
+                continue  # failed recently; 60s retry backoff
         try:
             msg = f"🚨 *{alert['source']} CRITICAL*: {alert['message']}"
-            res = subprocess.run(
-                ['/home/ste/.hermes/hermes-agent/venv/bin/hermes', 'send', '--to',
-                 'telegram', msg],
-                capture_output=True, text=True, timeout=15,
-                env={**os.environ, 'HOME': '/home/ste', 'HERMES_HOME': '/home/ste/.hermes'},
-            )
-            if res.returncode == 0:
-                _last_alert_notification[key] = now
-                print(f"[MONITOR] Notified: {msg}")
-            else:
-                print(f"[MONITOR] Alert notification failed (exit {res.returncode}): "
-                      f"{res.stderr.strip()[:200]}")
+            _telegram_send(msg)
+            _last_alert_notification[key] = {'sent_at': now, 'last_attempt': now}
+            print(f"[MONITOR] Notified: {msg}")
         except Exception as e:
-            print(f"[MONITOR] Alert notification failed: {e}")
+            prev = _last_alert_notification.get(key) or {}
+            _last_alert_notification[key] = {'sent_at': prev.get('sent_at'),
+                                             'last_attempt': now}
+            print(f"[MONITOR] Alert notification failed ({alert['source']}): {e}")
+    # Bound the dict: drop windows older than an hour once it grows past 64.
+    if len(_last_alert_notification) > 64:
+        cutoff = now - 3600
+        _last_alert_notification = {k: v for k, v in _last_alert_notification.items()
+                                    if v.get('last_attempt', 0) >= cutoff}
 
 # ---------------------------------------------------------------------------
 # Process CPU history tracking
