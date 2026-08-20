@@ -4,12 +4,12 @@ history_archive.py — Append-only JSONL archive for durable hardware-monitor hi
 
 Purpose
 -------
-The live monitor keeps a rolling ~24h window (8640 samples @ 10s) in the
-in-memory deque `H`, persisted to ~/.hermes/data/hardware-monitor-history.json
-every ~100s. Anything older than 24h is lost on every write. This module adds
+The live monitor keeps a rolling ~20 min window (120 samples @ ~10s, HISTORY_MAX)
+in the in-memory deque `H`, persisted to ~/.hermes/data/hardware-monitor-history.json
+every ~100s. Anything older than that is lost on every write. This module adds
 an append-only JSONL archive (one compact JSON line per collection tick) with
 a default 14-day retention, so RAM/disk/GPU history survives restarts and
-supports >24h trend analysis.
+supports >24h trend analysis (read back via read_range()).
 
 Design
 ------
@@ -30,6 +30,7 @@ Config (env)
 """
 
 import json
+import math
 import os
 import threading
 import time
@@ -124,3 +125,78 @@ def stats():
     except Exception as e:
         _log_error(f"stats failed: {e}")
     return result
+
+
+def read_range(start_t, end_t, max_points=1500):
+    """Return archived records with start_t <= t <= end_t, bucket-decimated.
+
+    Streaming scan of the append-only JSONL archive (records are in write
+    order, so `t` is monotonic). When more than `max_points` records fall in
+    the window they are bucket-averaged down to <= max_points (numeric fields
+    averaged, `t` set to the bucket midpoint) so a 24h window stays
+    phone-friendly. On ANY error returns [] and logs once — the dashboard
+    degrades to live-deque data, never 500s.
+    """
+    try:
+        with _lock:
+            if not os.path.exists(ARCHIVE_PATH):
+                return []
+            records = []
+            with open(ARCHIVE_PATH) as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        rec = json.loads(line)
+                    except Exception:
+                        continue
+                    t = rec.get('t')
+                    if not isinstance(t, (int, float)):
+                        continue
+                    if t < start_t:
+                        continue
+                    if t > end_t:
+                        # Append-only order: nothing later can be in window.
+                        break
+                    records.append(rec)
+        if max_points and len(records) > max_points:
+            return _decimate(records, max_points)
+        return records
+    except Exception as e:
+        _log_error(f"read_range failed: {e}")
+        return []
+
+
+def _decimate(records, max_points):
+    """Bucket-average `records` down to <= max_points points.
+
+    Numeric fields (excluding the timestamp) are averaged per bucket; the
+    bucket timestamp is the midpoint of its first/last sample. Non-numeric
+    fields (e.g. bool flags) keep the last present value in the bucket.
+    """
+    if max_points <= 0:
+        return records
+    bucket_size = math.ceil(len(records) / max_points)
+    out = []
+    for i in range(0, len(records), bucket_size):
+        bucket = records[i:i + bucket_size]
+        ts = [r['t'] for r in bucket if isinstance(r.get('t'), (int, float))]
+        if not ts:
+            continue
+        mid = {'t': (min(ts) + max(ts)) / 2.0}
+        keys = set()
+        for r in bucket:
+            keys.update(k for k in r if k != 't')
+        for k in sorted(keys):
+            nums = [r[k] for r in bucket
+                    if isinstance(r.get(k), (int, float)) and not isinstance(r.get(k), bool)]
+            if nums:
+                mid[k] = sum(nums) / len(nums)
+            else:
+                for r in reversed(bucket):  # last present value wins
+                    if k in r:
+                        mid[k] = r[k]
+                        break
+        out.append(mid)
+    return out

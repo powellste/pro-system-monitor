@@ -108,6 +108,7 @@
     .card.drop-before,.card.drop-after{transition:border-color .1s}
     .card-title{font-size:.95rem;font-weight:600;display:flex;align-items:center;gap:8px}
     .card-badge{font-size:.7rem;padding:2px 8px;border-radius:99px;background:var(--surface-3);color:var(--text-2)}
+    .range-limit-badge{font-size:.68rem;padding:3px 10px;border-radius:8px;background:var(--surface-3);color:var(--text-2);margin:-4px 0 8px}
 
     /* ===== Metric Tiles ===== */
     .metrics{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-bottom:14px}
@@ -680,6 +681,107 @@ function filterByTime(arr, minutes) {
   return arr.filter(p => p.t >= cutoff);
 }
 
+// ===== ARCHIVE-BACKED LONG RANGES =====
+// The live /api/history payload covers only ~20 min (120 samples). The
+// 1h/6h/24h buttons fetch archived history once from /api/history/range and
+// merge fresh live points in on each poll tick (see fetchAll).
+const RANGE_LIMIT_MIN = 25;  // beyond live deque coverage (~20 min) => archive
+const NOT_ARCHIVED_METRICS = ['gpu_freq','disk_io','net_errors','process_snapshot'];
+const CHART_METRIC = {
+  cpu:'cpu_temp', cpuPct:'cpu_percent', ram:'ram', disk:'disk',
+  net:'network', io:'disk_io', gpu:'gpu', 'gpu-freq':'gpu_freq',
+  swap:'swap', 'net-errors':'net_errors'
+};
+let archiveCache = {};    // hours -> {data, ts}
+let archiveFetching = {}; // hours -> in-flight promise
+
+async function fetchHistoryRange(hours){
+  const r = await fetch(_api('/api/history/range?hours='+hours));
+  if(!r.ok) throw new Error(r.statusText);
+  return await r.json();
+}
+
+function ensureArchiveRange(minutes){
+  const hours = Math.max(1, Math.ceil(minutes/60));
+  if (archiveCache[hours]) return Promise.resolve(archiveCache[hours].data);
+  if (archiveFetching[hours]) return archiveFetching[hours];
+  const p = fetchHistoryRange(hours)
+    .then(d => { archiveCache[hours] = {data:d, ts:Date.now()}; return d; })
+    .catch(e => { console.error('history range fetch failed', e); return null; })
+    .finally(() => { delete archiveFetching[hours]; });
+  archiveFetching[hours] = p;
+  return p;
+}
+
+// Append the newer live deque points to the cached archive payload so the
+// tail of every chart stays fresh between range fetches.
+function mergeArchiveLive(arch, live){
+  if(!arch) return live;
+  if(!live) return arch;
+  const out = {};
+  for (const k in arch) {
+    if (!Array.isArray(arch[k])) { out[k] = arch[k]; continue; }
+    const a = arch[k];
+    const l = Array.isArray(live[k]) ? live[k] : [];
+    if (!a.length) { out[k] = l; continue; }
+    const lastT = a[a.length-1].t || 0;
+    out[k] = a.concat(l.filter(p => p.t > lastT));
+  }
+  return out;
+}
+
+// Largest range (minutes) any chart currently asks for; 0 = live-only.
+function activeRangeMin(){
+  let max = 0;
+  for (const k in timeRanges) if (timeRanges[k] > max) max = timeRanges[k];
+  return max;
+}
+
+// Insert a .range-limit-badge under every chart's time buttons (and the
+// processes card, whose chart follows the cpu range). Hidden until a range
+// longer than live coverage is selected for a never-archived metric.
+function ensureRangeBadges(){
+  document.querySelectorAll('.time-range').forEach(container => {
+    const card = container.closest('.card');
+    if (!card || card.querySelector('.range-limit-badge')) return;
+    const badge = document.createElement('div');
+    badge.className = 'range-limit-badge';
+    badge.dataset.chartId = container.id.replace('-time-range', '');
+    badge.style.display = 'none';
+    container.after(badge);
+  });
+  const procCard = $('processes-card');
+  if (procCard && !procCard.querySelector('.range-limit-badge')) {
+    const badge = document.createElement('div');
+    badge.className = 'range-limit-badge';
+    badge.dataset.chartId = 'processes';
+    badge.style.display = 'none';
+    procCard.appendChild(badge);
+  }
+}
+
+// Show the honesty badge on cards whose metric is never archived when the
+// active range exceeds live coverage — instead of silently truncating.
+function updateRangeBadges(hist, rangeMin){
+  document.querySelectorAll('.range-limit-badge').forEach(b => {
+    let metric = null, min = 0;
+    if (b.dataset.chartId === 'processes') {
+      metric = 'process_snapshot'; min = getTimeRange('cpu');
+    } else if (CHART_METRIC[b.dataset.chartId]) {
+      metric = CHART_METRIC[b.dataset.chartId]; min = getTimeRange(b.dataset.chartId);
+    }
+    const limited = metric && NOT_ARCHIVED_METRICS.includes(metric) && min > RANGE_LIMIT_MIN;
+    if (!limited) { b.style.display = 'none'; return; }
+    let since = '—';
+    if (hist && hist.window_start) {
+      const d = new Date(hist.window_start * 1000);
+      since = d.toLocaleDateString() + ' ' + d.toLocaleTimeString();
+    }
+    b.textContent = '⚠ history archived since ' + since + ' — limited to ~20 min';
+    b.style.display = 'block';
+  });
+}
+
 // Extended time range presets
 const TIME_PRESETS = [
   {min: 0, label: 'ALL'},
@@ -715,7 +817,17 @@ function setupTimeButtons() {
         const chartId = container.id.replace('-time-range', '');
         const min = parseInt(this.dataset.min) || 0;
         timeRanges[chartId] = min;
-        if (historyData) updateCharts(historyData);
+        if (min > RANGE_LIMIT_MIN) {
+          // Long range: pull archived history once, merge live points.
+          ensureArchiveRange(min).then(arch => {
+            const merged = mergeArchiveLive(arch, historyData);
+            updateCharts(merged);
+            updateRangeBadges(merged, activeRangeMin());
+          });
+        } else if (historyData) {
+          updateCharts(historyData);
+          updateRangeBadges(historyData, activeRangeMin());
+        }
       });
     });
   });
@@ -1648,7 +1760,21 @@ async function fetchAll(){
       fetchTrading(), fetchSystemd(), fetchFrigate()
     ]);
     if(status) renderStatus(status);
-    if(hist) { updateCharts(hist); diskProjection(hist); }
+    if(hist) {
+      diskProjection(hist);
+      const rangeMin = activeRangeMin();
+      if (rangeMin > RANGE_LIMIT_MIN) {
+        // Long range active: merge fresh live points into cached archive data.
+        ensureArchiveRange(rangeMin).then(arch => {
+          const merged = mergeArchiveLive(arch, hist);
+          updateCharts(merged);
+          updateRangeBadges(merged, activeRangeMin());
+        });
+      } else {
+        updateCharts(hist);
+        updateRangeBadges(hist, 0);
+      }
+    }
     if(procs) renderProcesses(procs);
     if(llama) renderLlama(llama);
     if(trading) renderTrading(trading);
@@ -1781,7 +1907,12 @@ function setupGpuMetricClicks() {
 function updateChartFromMetric(){
   fetchHistory().then(hist => {
     if (!hist) return;
-    updateCharts(hist);
+    const rangeMin = activeRangeMin();
+    if (rangeMin > RANGE_LIMIT_MIN) {
+      ensureArchiveRange(rangeMin).then(arch => updateCharts(mergeArchiveLive(arch, hist)));
+    } else {
+      updateCharts(hist);
+    }
   });
 }
 
@@ -1961,6 +2092,7 @@ initCharts();
 fetchAll();
 // Setup time buttons
 setupTimeButtons();
+ensureRangeBadges();
 // Setup metric tile clicks
 setTimeout(setupMetricClicks, 500);
 

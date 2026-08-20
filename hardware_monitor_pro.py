@@ -11,6 +11,7 @@ import requests
 import time
 import threading
 import json
+import math
 import os
 import signal
 import subprocess
@@ -1285,6 +1286,80 @@ def _background_collector():
 
 
 # ---------------------------------------------------------------------------
+# Archive -> deque point shape mapping (for /api/history/range)
+# ---------------------------------------------------------------------------
+# The append-only JSONL archive stores one flat record per tick
+# (history_archive.py); the dashboard charts consume deque point shapes
+# ({"t","v"} for scalars, {"t","percent",...} for multi-field metrics, and
+# {"t","gpus":[...]} for the GPU card). This table maps archive field names to
+# the point keys updateCharts() reads. Metrics absent from the archive
+# (gpu_freq, disk_io, net_errors, process_snapshot) are never archived and
+# read back as [] — the frontend shows an honesty badge instead of silently
+# truncating. Keep this table in sync with the collector's _archive_record
+# construction above; the round-trip tests in test_api.py enforce it.
+ARCHIVE_METRIC_MAP = {
+    'cpu_temp':    {'cpu_temp': 'v'},
+    'cpu_freq':    {'cpu_freq': 'v'},
+    'cpu_percent': {'cpu_percent': 'v'},
+    'ram':         {'ram_percent': 'percent', 'ram_used_gb': 'used_gb', 'ram_total_gb': 'total_gb'},
+    'disk':        {'disk_percent': 'percent', 'disk_free_gb': 'free_gb', 'disk_total_gb': 'total_gb'},
+    'network':     {'net_rx_mbps': 'rx_speed_mbps', 'net_tx_mbps': 'tx_speed_mbps'},
+    'gpu':         {},   # nested {t, gpus:[...]} shape — see _archive_gpu_point
+    'gpu_vram':    {'gpu_vram_pct': 'v'},
+    'gpu_power':   {'gpu_power_w': 'v'},
+    'swap':        {'swap_percent': 'percent'},
+    'llama':       {'llama_alive': 'alive', 'llama_kv_pct': 'kv_usage_pct'},
+}
+
+# Deque metrics that are never archived (no flat archive fields exist).
+_ARCHIVE_UNSUPPORTED = frozenset(['gpu_freq', 'disk_io', 'net_errors', 'process_snapshot'])
+
+
+def _archive_gpu_point(r):
+    """Rebuild the nested {t, gpus:[...]} point shape for the GPU chart.
+
+    The archive stores GPU fields flat (gpu_temp/gpu_util/gpu_power_w and
+    gpu_vram_pct). updateCharts reads p.gpus[0].{temperature,
+    utilization_gpu, power_w, memory_used_gb, memory_total_gb}. The archive
+    has VRAM only as a percent, so it is presented as used/total=100 — the
+    chart's used/total*100 math then reproduces the same percentage.
+    """
+    g = {
+        'temperature': r.get('gpu_temp', 0),
+        'utilization_gpu': r.get('gpu_util', 0),
+        'power_w': r.get('gpu_power_w', 0),
+        'memory_total_gb': 100,
+        'memory_used_gb': r.get('gpu_vram_pct', 0),
+    }
+    return {'t': r['t'], 'gpus': [g]}
+
+
+def _archive_series(records, metric):
+    """Transform flat archive records into deque point shapes for `metric`.
+
+    Returns [] for metrics that are never archived or unknown. Numeric fields
+    are copied through ARCHIVE_METRIC_MAP; 'gpu' is rebuilt into its nested
+    point shape. This is the only place the flat->point transform lives, so a
+    round-trip test per metric keeps the table from silently drifting.
+    """
+    if metric in _ARCHIVE_UNSUPPORTED:
+        return []
+    if metric == 'gpu':
+        return [_archive_gpu_point(r) for r in records]
+    mapping = ARCHIVE_METRIC_MAP.get(metric)
+    if not mapping:
+        return []
+    pts = []
+    for r in records:
+        p = {'t': r['t']}
+        for src, dst in mapping.items():
+            if src in r:
+                p[dst] = r[src]
+        pts.append(p)
+    return pts
+
+
+# ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
 @app.route('/')
@@ -1383,6 +1458,53 @@ def get_history():
             h[k] = list(H[k])
         h['total_records'] = len(H['cpu_temp'])
     return jsonify(h)
+
+
+@app.route('/api/history/range')
+def get_history_range():
+    """Archived metric history for a time window (JSONL archive backed).
+
+    Query params:
+      hours=N       window length in hours (default 1, clamped to (0, 336])
+      metric=M      optional single metric; unknown metric -> 404
+      max_points=N  per-metric decimation cap (default 1500, max 5000)
+
+    Response shape matches /api/history ({metric: [...], total_records,
+    window_start, window_end}) so the frontend feeds it straight into
+    updateCharts(). /api/history itself stays deque-only so the 5s poll never
+    becomes a multi-MB payload. Auth: covered by the global before_request
+    guard (same as every other /api/* route).
+    """
+    try:
+        hours = float(request.args.get('hours', '1'))
+    except ValueError:
+        hours = 1.0
+    if not math.isfinite(hours) or hours <= 0:
+        hours = 1.0
+    hours = min(hours, 336.0)  # 14-day archive cap
+
+    try:
+        max_points = int(request.args.get('max_points', '1500'))
+    except ValueError:
+        max_points = 1500
+    max_points = min(max(0, max_points), 5000)
+
+    metric = request.args.get('metric')
+    if metric is not None and metric not in H:
+        return jsonify({'error': f'Unknown metric: {metric}'}), 404
+
+    now = time.time()
+    start_t = now - hours * 3600
+    records = history_archive.read_range(start_t, now, max_points=max_points)
+
+    if metric is not None:
+        data = {metric: _archive_series(records, metric)}
+    else:
+        data = {m: _archive_series(records, m) for m in H}
+    data['total_records'] = len(records)
+    data['window_start'] = records[0]['t'] if records else start_t
+    data['window_end'] = records[-1]['t'] if records else now
+    return jsonify(data)
 
 
 @app.route('/api/history/<metric>')
