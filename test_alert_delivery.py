@@ -27,6 +27,7 @@ class _FakeResp:
 
     def __init__(self, ok=True):
         self._ok = ok
+        self.status_code = 200 if ok else 400
 
     def raise_for_status(self):
         if not self._ok:
@@ -111,6 +112,57 @@ def test_proxy_passed_when_configured(fake, monkeypatch):
     h._telegram_send('x')
     assert fake.calls[0]['proxies'] == {'http': 'http://proxy.local:3128',
                                         'https': 'http://proxy.local:3128'}
+
+
+def test_message_body_escaped_for_markdown(fake, clock):
+    # Underscores in dynamic text (task ids, mount paths) must be escaped so
+    # Telegram legacy Markdown does not 400 'can't parse entities'. The static
+    # *SOURCE CRITICAL* prefix stays intentional markdown.
+    alert = {'severity': 'critical', 'source': 'RAM',
+             'message': 'RAM at 95% t_247a5fb9 (threshold 85%)'}
+    h._send_alert_notification([alert])
+    text = fake.calls[0]['json']['text']
+    assert text.startswith('🚨 *RAM CRITICAL*: ')
+    assert 't\\_247a5fb9' in text
+    assert '*RAM CRITICAL*' in text
+
+
+def test_error_never_contains_token(fake, clock, monkeypatch):
+    # requests embeds the full request URL (with the bot token) in its
+    # exception text; the raised error must stay token-free for journal safety.
+    class _FailingPost:
+        def __init__(self):
+            self.calls = 0
+
+        def post(self, url, **kwargs):
+            self.calls += 1
+            raise RuntimeError(f'Connection aborted to {url}')
+
+    failing = _FailingPost()
+    monkeypatch.setattr(h, 'requests', failing)
+    with pytest.raises(RuntimeError) as exc_info:
+        h._telegram_send('hello')
+    assert h.TELEGRAM_BOT_TOKEN not in str(exc_info.value)
+
+
+def test_http_error_never_contains_token(fake, clock, monkeypatch):
+    class _BadResp:
+        def __init__(self, status, ok):
+            self.status_code = status
+            self._ok = ok
+
+        def json(self):
+            return {'ok': self._ok, 'description': 'bad'}
+
+    class _BadRequests:
+        def post(self, url, **kwargs):
+            return _BadResp(400, False)
+
+    monkeypatch.setattr(h, 'requests', _BadRequests())
+    with pytest.raises(RuntimeError) as exc_info:
+        h._telegram_send('hello')
+    assert 'bot' not in str(exc_info.value)
+    assert 'HTTP 400' in str(exc_info.value)
 
 
 # --- window dedup ----------------------------------------------------------

@@ -987,11 +987,26 @@ TELEGRAM_PROXY = os.environ.get('TELEGRAM_PROXY') or _TG_ENV.get('TELEGRAM_PROXY
 _TELEGRAM_API_URL = 'https://api.telegram.org/bot{token}/sendMessage'
 
 
+def _escape_markdown(text):
+    """Escape legacy Telegram Markdown specials in dynamic alert text.
+
+    Only the dynamic message body is escaped; the static prefix
+    (\U0001f6a8 *SOURCE CRITICAL*:) stays intentional markdown. Without this,
+    an underscore in a mount path, sensor name, or task id (e.g. t_247a5fb9)
+    breaks entity parsing and Telegram answers 400 'can't parse entities'.
+    """
+    for ch in ('_', '*', '[', ']', '`'):
+        text = text.replace(ch, '\\' + ch)
+    return text
+
+
 def _telegram_send(text):
     """Send a text message in-process via the Telegram Bot API (direct POST).
 
     Raises on any failure so the caller can apply the 60s retry backoff.
     Honors TELEGRAM_PROXY via requests `proxies=` when configured.
+    The raised error NEVER includes the request URL — requests embeds it in
+    its exception text and the URL carries the bot token (journal safety).
     """
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_HOME_CHANNEL:
         raise RuntimeError(
@@ -1000,15 +1015,21 @@ def _telegram_send(text):
     proxies = None
     if TELEGRAM_PROXY:
         proxies = {'http': TELEGRAM_PROXY, 'https': TELEGRAM_PROXY}
-    resp = requests.post(
-        _TELEGRAM_API_URL.format(token=TELEGRAM_BOT_TOKEN),
-        json={'chat_id': TELEGRAM_HOME_CHANNEL,
-              'text': text,
-              'parse_mode': 'Markdown'},
-        timeout=10,
-        proxies=proxies,
-    )
-    resp.raise_for_status()
+    try:
+        resp = requests.post(
+            _TELEGRAM_API_URL.format(token=TELEGRAM_BOT_TOKEN),
+            json={'chat_id': TELEGRAM_HOME_CHANNEL,
+                  'text': text,
+                  'parse_mode': 'Markdown'},
+            timeout=10,
+            proxies=proxies,
+        )
+    except Exception:
+        # Generic on purpose: requests exception text embeds the full request
+        # URL (with the bot token); keep the journal token-free.
+        raise RuntimeError('Telegram API request failed (network/timeout)')
+    if resp.status_code != 200:
+        raise RuntimeError(f'Telegram API error: HTTP {resp.status_code}')
     data = resp.json()
     if not data.get('ok'):
         raise RuntimeError(f"Telegram API error: {data.get('description', 'unknown')}")
@@ -1051,7 +1072,7 @@ def _send_alert_notification(alerts):
             if now - state.get('last_attempt', 0) < 60:
                 continue  # failed recently; 60s retry backoff
         try:
-            msg = f"🚨 *{alert['source']} CRITICAL*: {alert['message']}"
+            msg = f"🚨 *{alert['source']} CRITICAL*: {_escape_markdown(alert['message'])}"
             _telegram_send(msg)
             _last_alert_notification[key] = {'sent_at': now, 'last_attempt': now}
             print(f"[MONITOR] Notified: {msg}")
