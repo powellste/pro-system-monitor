@@ -336,14 +336,21 @@ def _collect_cpu():
                         break
             except Exception:
                 pass
+    # psutil.cpu_percent(interval=None) is a NON-BLOCKING call that measures
+    # utilization since this thread's LAST same-mode call. Making two calls
+    # back-to-back (one for 'percent', one for 'per_core') made the second
+    # sample only the microseconds between them -> garbage per-core values.
+    # Use ONE call for both: per-core measured over the thread's real window,
+    # and the aggregate derived from the same window (mean of the cores).
+    per_core = [round(p, 1) for p in psutil.cpu_percent(interval=None, percpu=True)]
     return {
         'temps': temps,
         'freq': {
             'current': round(freq.current, 1) if freq else 0,
             'max': max_freq,
         },
-        'percent': psutil.cpu_percent(interval=None),
-        'per_core': [round(p, 1) for p in psutil.cpu_percent(percpu=True)],
+        'percent': round(sum(per_core) / len(per_core), 1) if per_core else 0.0,
+        'per_core': per_core,
         'load_avg': [round(x, 2) for x in psutil.getloadavg()],
         'count_logical': psutil.cpu_count(logical=True),
         'count_physical': psutil.cpu_count(logical=False),
@@ -1124,6 +1131,14 @@ def _collect_process_snapshot():
 def _background_collector():
     global _save_counter, _cached_status
     print("[MONITOR] Background collector started")
+    # Warm up this thread's psutil cpu_percent baseline: the first non-blocking
+    # call in a fresh thread measures only since that call's own start, so
+    # without this seed tick 1 would read a microseconds window (garbage
+    # per-core / percent). With it, tick 1 measures the full history_interval.
+    try:
+        psutil.cpu_percent(interval=None, percpu=True)
+    except Exception:
+        pass
     while True:
         time.sleep(CONFIG['history_interval'])
         _archive_record = {'t': time.time()}   # fallback if collection errors out
@@ -1387,6 +1402,18 @@ def get_status():
                 return jsonify(_cached_status)
     # Fallback: collect fresh
     cpu = _collect_cpu()
+    # psutil's percent baselines are per-thread: a fresh request thread's first
+    # non-blocking cpu_percent() call measures only microseconds, so its fresh
+    # per_core would be garbage. Serve the collector's history_interval-window
+    # per_core instead (cache-authoritative); before the first tick (boot
+    # window) take a short BLOCKING measurement — a real window, never garbage.
+    # The aggregate percent stays the fresh reading (preserves live=1's
+    # purpose; its values are plausible on this box).
+    with _cached_status_lock:
+        if _cached_status is not None:
+            cpu['per_core'] = _cached_status['cpu']['per_core']
+        else:
+            cpu['per_core'] = [round(p, 1) for p in psutil.cpu_percent(interval=0.1, percpu=True)]
     ram = psutil.virtual_memory()
     disk = psutil.disk_usage('/')
     net = _collect_network_delta()

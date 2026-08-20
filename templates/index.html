@@ -916,10 +916,24 @@ function renderStatus(d){
   }
   if(cpu.per_core && cpu.per_core.length){
     const cg = document.getElementById('cpu-core-grid');
-    if(cg) cg.innerHTML = cpu.per_core.map(function(p,i){
-      var cls = p>80?'danger':p>60?'warning':'good';
-      return '<div class="core-item"><span class="core-lbl">C'+i+'</span><div class="usage-bar" style="height:4px;margin:0"><div class="usage-fill '+cls+'" style="width:'+p+'%"></div></div><span class="core-val">'+p+'%</span></div>';
-    }).join('');
+    if(cg){
+      // Defensive sanitize: clamp every core to [0,100]; if any value is
+      // non-numeric or out of range, render the grid grey with '?' cells
+      // instead of red 'pegged' cells (the backend A+B fix keeps this from
+      // ever triggering — insurance for regressions).
+      const bad = cpu.per_core.some(function(p){ const n = Number(p); return !isFinite(n) || n < 0 || n > 100; });
+      const pc = cpu.per_core.map(function(p){ const n = Number(p); return isFinite(n) ? Math.max(0, Math.min(100, n)) : 0; });
+      if(bad){
+        cg.innerHTML = pc.map(function(p,i){
+          return '<div class="core-item"><span class="core-lbl">C'+i+'</span><div class="usage-bar" style="height:4px;margin:0"><div class="usage-fill" style="width:0%"></div></div><span class="core-val">?</span></div>';
+        }).join('');
+      } else {
+        cg.innerHTML = pc.map(function(p,i){
+          var cls = p>80?'danger':p>60?'warning':'good';
+          return '<div class="core-item"><span class="core-lbl">C'+i+'</span><div class="usage-bar" style="height:4px;margin:0"><div class="usage-fill '+cls+'" style="width:'+p+'%"></div></div><span class="core-val">'+p+'%</span></div>';
+        }).join('');
+      }
+    }
   }
   const cCls = cpu.percent>80?'danger':cpu.percent>60?'warning':'good';
   $('cpu-badge').textContent = cpu.percent+'%';
