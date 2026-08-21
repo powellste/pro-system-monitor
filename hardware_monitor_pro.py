@@ -189,6 +189,58 @@ _llama_tps_data = {'prompt_tps': None, 'gen_tps': None,
                    'total_prompt_tokens': 0, 'total_predicted_tokens': 0, 'total_tokens': 0,
                    'requests_processing': 0, 'requests_deferred': 0,
                    'n_decode_total': 0, 'generation_time_seconds': 0}
+_last_lifetime_prompt = None
+_last_lifetime_predicted = None
+
+# ---------------------------------------------------------------------------
+# Persistent lifetime token tracker (per model, survives restarts)
+# ---------------------------------------------------------------------------
+_LIFETIME_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'llama_lifetime.json')
+_LIFETIME_LOCK = threading.Lock()
+
+def _load_lifetime():
+    """Load persistent lifetime token counts per model."""
+    try:
+        with open(_LIFETIME_FILE, 'r') as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {'models': {}, 'total_prompt': 0, 'total_predicted': 0, 'total_tokens': 0}
+
+def _save_lifetime(data):
+    """Atomically write lifetime data."""
+    tmp = _LIFETIME_FILE + '.tmp'
+    with open(tmp, 'w') as f:
+        json.dump(data, f)
+    os.replace(tmp, _LIFETIME_FILE)
+
+def _update_lifetime(model, prompt_tokens, predicted_tokens):
+    """Accumulate tokens into the persistent lifetime tracker for the given model."""
+    if not model:
+        return
+    with _LIFETIME_LOCK:
+        data = _load_lifetime()
+        # Normalise model name — strip .gguf suffix for cleaner display
+        model_key = model.replace('.gguf', '')
+        m = data['models'].get(model_key, {'prompt': 0, 'predicted': 0, 'total': 0})
+        m['prompt'] += prompt_tokens
+        m['predicted'] += predicted_tokens
+        m['total'] += prompt_tokens + predicted_tokens
+        data['models'][model_key] = m
+        data['total_prompt'] += prompt_tokens
+        data['total_predicted'] += predicted_tokens
+        data['total_tokens'] += prompt_tokens + predicted_tokens
+        _save_lifetime(data)
+
+def _reset_lifetime():
+    """Reset all lifetime counters."""
+    with _LIFETIME_LOCK:
+        blank = {'models': {}, 'total_prompt': 0, 'total_predicted': 0, 'total_tokens': 0}
+        _save_lifetime(blank)
+        return blank
+
+# Approximate cloud pricing per million tokens (DeepSeek V4 Flash)
+_CLOUD_COST_PER_M_INPUT = 0.35
+_CLOUD_COST_PER_M_OUTPUT = 0.40
 
 # ---------------------------------------------------------------------------
 # Alert rules
@@ -701,13 +753,26 @@ def _query_llama():
         except Exception:
             pass
 
-        # Slots (always fresh — context usage)
+        # Slots (always fresh — context usage per slot)
+        slots_list = []
+        total_context_used = 0
+        total_context_max = 0
         try:
             r = urllib.request.urlopen('http://localhost:8080/slots', timeout=3)
             slots_data = json.loads(r.read())
-            if slots_data:
-                result['context_used'] = slots_data[0].get('n_prompt_tokens', 0)
-                result['context_max'] = slots_data[0].get('n_ctx', 131072)
+            if isinstance(slots_data, list) and slots_data:
+                for s in slots_data:
+                    n_ctx = s.get('n_ctx', 0)
+                    n_prompt = s.get('n_prompt_tokens', 0)
+                    slots_list.append({'n_ctx': n_ctx, 'n_prompt_tokens': n_prompt})
+                    total_context_used += n_prompt
+                    total_context_max += n_ctx
+                    # Use the first slot's n_ctx as the overall context_max
+                if slots_list:
+                    result['context_used'] = total_context_used
+                    result['context_max'] = slots_list[0].get('n_ctx', 131072) * len(slots_list)
+                    result['slots'] = slots_list
+                    result['slots_count'] = len(slots_list)
         except Exception:
             pass
 
@@ -741,6 +806,20 @@ def _query_llama():
         result.update(_llama_tps_data)
         _llama_cache = dict(result)
         _llama_cache_time = now
+        # Add persistent lifetime + cost saved to result
+        lifetime = _load_lifetime()
+        result['lifetime'] = lifetime
+        total_lifetime_tokens = lifetime.get('total_tokens', 0)
+        total_lifetime_prompt = lifetime.get('total_prompt', 0)
+        total_lifetime_predicted = lifetime.get('total_predicted', 0)
+        # Cost saved = what cloud would have cost minus local electricity
+        # DeepSeek ~$0.35/M input, ~$0.40/M output
+        cloud_cost = (total_lifetime_prompt / 1_000_000 * _CLOUD_COST_PER_M_INPUT +
+                      total_lifetime_predicted / 1_000_000 * _CLOUD_COST_PER_M_OUTPUT)
+        # Local electricity cost estimate: ~300W GPU system at $0.15/kWh
+        # Very rough: ~$0.000045 per 1K tokens for a 12B model
+        local_cost = (total_lifetime_tokens / 1_000_000) * 0.045  # ~$0.045/M tokens local
+        result['cost_saved'] = round(cloud_cost - local_cost, 2)
     except Exception as e:
         result['alive'] = False
     return result
@@ -1564,8 +1643,40 @@ def export_data():
 
 @app.route('/api/llama')
 def get_llama():
-    """llama-server status + metrics."""
-    return jsonify(_query_llama())
+    """llama-server status + metrics + lifetime + cost saved."""
+    data = _query_llama()
+    # Seed lifetime on first call (outside _query_llama's try/except)
+    _seed_lifetime_from_metrics(data)
+    return jsonify(data)
+
+
+def _seed_lifetime_from_metrics(data):
+    """Accumulate session tokens into lifetime file on first call."""
+    global _last_lifetime_prompt, _last_lifetime_predicted
+    try:
+        prompt = data.get('total_prompt_tokens', 0)
+        predicted = data.get('total_predicted_tokens', 0)
+        if _last_lifetime_prompt is None and prompt > 0:
+            _update_lifetime(data.get('model'), prompt, predicted)
+            _last_lifetime_prompt = prompt
+            _last_lifetime_predicted = predicted
+        elif _last_lifetime_prompt is not None:
+            if prompt > _last_lifetime_prompt or predicted > _last_lifetime_predicted:
+                dp = max(0, prompt - _last_lifetime_prompt)
+                dg = max(0, predicted - _last_lifetime_predicted)
+                if dp > 0 or dg > 0:
+                    _update_lifetime(data.get('model'), dp, dg)
+            _last_lifetime_prompt = prompt
+            _last_lifetime_predicted = predicted
+    except Exception:
+        pass
+
+
+@app.route('/api/llama/reset-lifetime', methods=['POST'])
+def reset_llama_lifetime():
+    """Reset the persistent lifetime token counter."""
+    blank = _reset_lifetime()
+    return jsonify({'ok': True, 'lifetime': blank})
 
 
 @app.route('/api/trading')

@@ -1172,12 +1172,57 @@ function renderLlama(d){
     <div class="llama-grid">
       <div class="llama-stat"><div class="val">${d.prompt_tps !== null ? d.prompt_tps+' tok/s' : '—'}</div><div class="lbl">Prompt TPS</div></div>
       <div class="llama-stat"><div class="val">${d.gen_tps !== null ? d.gen_tps+' tok/s' : '—'}</div><div class="lbl">Gen TPS</div></div>
-      <div class="llama-stat"><div class="val">${fmt(d.total_tokens/1e6,2)}<span style="font-size:.65rem;color:var(--text-3)">M</span></div><div class="lbl">Lifetime Tokens <span style="font-size:.65rem;color:var(--text-3)">(${d.total_prompt_tokens.toLocaleString()}P / ${d.total_predicted_tokens.toLocaleString()}G)</span></div></div>
+      <div class="llama-stat"><div class="val">${fmt(d.total_tokens/1e6,2)}<span style="font-size:.65rem;color:var(--text-3)">M</span></div><div class="lbl">Session Tokens <span style="font-size:.65rem;color:var(--text-3)">(${d.total_prompt_tokens.toLocaleString()}P / ${d.total_predicted_tokens.toLocaleString()}G)</span></div></div>
       <div class="llama-stat"><div class="val" style="color:${d.requests_processing > 0 ? 'var(--warning)' : 'var(--text-2)'}">${d.requests_processing}</div><div class="lbl">Processing</div></div>
-      <div class="llama-stat"><div class="val">${d.context_used.toLocaleString()} / ${d.context_max.toLocaleString()}</div><div class="lbl">Context — ${ctxPct}%</div></div>
+      <div class="llama-stat"><div class="val" style="font-size:1rem">${renderSlotsCtx(d)}</div><div class="lbl">Context${d.slots_count ? ' · '+d.slots_count+' slot'+(d.slots_count>1?'s':'') : ''}</div></div>
       <div class="llama-stat"><div class="val" style="color:${d.requests_deferred > 0 ? 'var(--warning)' : 'var(--text-2)'}">${d.requests_deferred}</div><div class="lbl">Deferred</div></div>
+      <div class="llama-stat"><div class="val">${renderLifetime(d)}</div><div class="lbl">Lifetime Tokens</div></div>
+      <div class="llama-stat"><div class="val" style="color:var(--success)">${renderCostSaved(d)}</div><div class="lbl">Cost Saved <span style="font-size:.65rem;color:var(--text-3)">vs cloud</span></div></div>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:8px;justify-content:flex-end">
+      <button class="btn btn-sm" onclick="resetLifetime()" title="Reset lifetime token counter">↺ Reset Lifetime</button>
     </div>
   `;
+}
+
+function renderSlotsCtx(d){
+  if(!d.slots || !d.slots.length) return (d.context_used||0).toLocaleString()+' / '+(d.context_max||0).toLocaleString();
+  return d.slots.map(s => s.n_prompt_tokens.toLocaleString()).join(' <span style="color:var(--text-3);font-size:.65rem">|</span> ') + ' / ' + d.slots[0].n_ctx.toLocaleString();
+}
+
+function renderLifetime(d){
+  const lt = d.lifetime;
+  if(!lt || !lt.total_tokens) return '—';
+  const total = lt.total_tokens;
+  const prompt = lt.total_prompt || 0;
+  const gen = lt.total_predicted || 0;
+  // Show per-model breakdown
+  const models = lt.models || {};
+  const modelKeys = Object.keys(models);
+  if(modelKeys.length === 1){
+    return fmt(total/1e6,2) + '<span style="font-size:.65rem;color:var(--text-3)">M</span> <span style="font-size:.6rem;color:var(--text-3)">('+prompt.toLocaleString()+'P / '+gen.toLocaleString()+'G)</span>';
+  }
+  return fmt(total/1e6,2)+'<span style="font-size:.65rem;color:var(--text-3)">M</span>';
+}
+
+function renderCostSaved(d){
+  const cs = d.cost_saved;
+  if(cs == null) return '—';
+  const abs = Math.abs(cs);
+  if(cs < 0) return '-$'+abs.toFixed(2);
+  if(cs < 0.01) return '$0.00';
+  return '$'+cs.toFixed(2);
+}
+
+function resetLifetime(){
+  if(!confirm('Reset the lifetime token counter? This cannot be undone.')) return;
+  fetch(_api('/api/llama/reset-lifetime'), {method:'POST'})
+    .then(r => r.json())
+    .then(d => {
+      if(d.ok){ toast('Lifetime counter reset ✓'); }
+      else { toast('Reset failed: '+(d.error||'?')); }
+    })
+    .catch(e => toast('Error: '+e));
 }
 
 // RENDER TRADING ENGINE
