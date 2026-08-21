@@ -1162,6 +1162,9 @@ function renderLlama(d){
     : genTime >= 60
       ? Math.floor(genTime/60)+'m '+Math.floor(genTime%60)+'s'
       : genTime.toFixed(1)+'s';
+  const avgPrompt = d.total_prompt_tokens > 0 && genTime > 0
+    ? (d.total_prompt_tokens / genTime).toFixed(1)
+    : d.prompt_tps;
   const avgSpeed = d.total_predicted_tokens > 0 && genTime > 0
     ? (d.total_predicted_tokens / genTime).toFixed(1)
     : d.gen_tps;
@@ -1170,8 +1173,8 @@ function renderLlama(d){
       <span style="margin-left:auto;font-size:.75rem;color:var(--text-3)">⬤ ${genTimeStr} gen time</span>
     </div>
     <div class="llama-grid">
-      <div class="llama-stat"><div class="val">${d.prompt_tps !== null ? d.prompt_tps+' tok/s' : '—'}</div><div class="lbl">Prompt TPS</div></div>
-      <div class="llama-stat"><div class="val">${d.gen_tps !== null ? d.gen_tps+' tok/s' : '—'}</div><div class="lbl">Gen TPS</div></div>
+      <div class="llama-stat"><div class="val" style="line-height:1.3">${d.prompt_tps !== null ? d.prompt_tps+' tok/s' : '—'}<span style="display:block;font-size:.65rem;font-weight:400;color:var(--text-3);margin-top:2px">avg ${avgPrompt}</span></div><div class="lbl">Prompt TPS</div></div>
+      <div class="llama-stat"><div class="val" style="line-height:1.3">${d.gen_tps !== null ? d.gen_tps+' tok/s' : '—'}<span style="display:block;font-size:.65rem;font-weight:400;color:var(--text-3);margin-top:2px">avg ${avgSpeed}</span></div><div class="lbl">Gen TPS</div></div>
       <div class="llama-stat"><div class="val">${fmt(d.total_tokens/1e6,2)}<span style="font-size:.65rem;color:var(--text-3)">M</span></div><div class="lbl">Session Tokens <span style="font-size:.65rem;color:var(--text-3)">(${d.total_prompt_tokens.toLocaleString()}P / ${d.total_predicted_tokens.toLocaleString()}G)</span></div></div>
       <div class="llama-stat"><div class="val" style="color:${d.requests_processing > 0 ? 'var(--warning)' : 'var(--text-2)'}">${d.requests_processing}</div><div class="lbl">Processing</div></div>
       <div class="llama-stat"><div class="val" style="font-size:1rem">${renderSlotsCtx(d)}</div><div class="lbl">Context${d.slots_count ? ' · '+d.slots_count+' slot'+(d.slots_count>1?'s':'') : ''}</div></div>
