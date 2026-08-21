@@ -277,13 +277,23 @@ var RV = {
   render: function(){
     RV.renderGate(RV.data.gate || []);
     RV.renderBlocked(RV.data.blocked || []);
-    RV.renderList('running', RV.data.running || [], true);
-    RV.renderList('ready', RV.data.ready || [], true);
+    RV.renderList('running', RV.data.running || [], true, RV.data.running_total || 0);
+    RV.renderList('ready', RV.data.ready || [], true, RV.data.ready_total || 0);
     RV.renderCompleted(RV.data.completed || []);
     RV.renderJudgeAlerts(RV.data.judge_alerts || []);
     var liveN = (RV.data.gate||[]).length + (RV.data.blocked||[]).length
               + (RV.data.running||[]).length + (RV.data.ready||[]).length;
     document.getElementById('liveCount').textContent = liveN;
+    // Update blocked count to show real total (not just the displayed count)
+    var blockedTotal = RV.data.blocked_total || 0;
+    var blockedDisplay = RV.data.blocked.length;
+    document.getElementById('blockedCount').textContent = blockedTotal > blockedDisplay
+      ? blockedDisplay + '+' : blockedTotal;
+    // Update running count to show real total
+    var runningTotal = RV.data.running_total || 0;
+    var runningDisplay = RV.data.running.length;
+    document.getElementById('runningCount').textContent = runningTotal > runningDisplay
+      ? runningDisplay + '+' : runningTotal;
   },
   /* R8: silent-judge alert banner (judge_alerts from /api/review/overview) */
   renderJudgeAlerts: function(items){
@@ -339,8 +349,11 @@ var RV = {
     return '<span class="tag" style="background:var(--danger-bg);color:var(--danger)">♥ dead ' + RV.fmtDur(ageSec) + '</span>';
   },
   renderCompleted: function(items){
-    document.getElementById('completedCount').textContent = items.length;
-    document.getElementById('completedCount2').textContent = items.length;
+    var displayed = items.length;
+    var completedTotal = RV.data.completed_total || 0;
+    var countText = completedTotal > displayed ? displayed + '+' : completedTotal;
+    document.getElementById('completedCount').textContent = countText;
+    document.getElementById('completedCount2').textContent = countText;
     var box = document.getElementById('completedList');
     if(!items.length){ box.innerHTML = '<div class="empty">No completed cards yet</div>'; return; }
     var html = '';
@@ -669,8 +682,11 @@ var RV = {
     var where = (a.local ? 'local' : (a.provider || '?')) + ':' + esc(a.model || '?');
     return '<div class="muted" style="margin-top:2px">⚡ live usage — ' + where + ' — ' + bits.join(' · ') + '</div>';
   },
-  renderList: function(kind, items, compact){
-    document.getElementById(kind + 'Count').textContent = items.length;
+  renderList: function(kind, items, compact, total){
+    var displayed = items.length;
+    var displayTotal = total || displayed;
+    var countText = displayTotal > displayed ? displayed + '+' : displayTotal;
+    document.getElementById(kind + 'Count').textContent = countText;
     var box = document.getElementById(kind + 'List');
     if(!items.length){ box.innerHTML = '<div class="empty">None</div>'; return; }
     var html = '';

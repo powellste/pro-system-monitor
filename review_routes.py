@@ -516,14 +516,32 @@ def _read_proposal_md(path: Path) -> Optional[Dict[str, Any]]:
 
 
 def _iter_proposals(board: str = BOARD_SLUG) -> List[Dict[str, Any]]:
+    """Iterate proposal vault items across BOTH vaults (workflow + trading).
+
+    Triage proposals (build/research lanes) are written by the multi-agent
+    workflow pipeline to the workflow repo vault; direction proposals are
+    written by the trading repo's synthesize_direction.py to the trading vault.
+    The pain-point board maps to the trading vault by default — search both
+    so triage items are not hidden.
+    """
     vault = _board_paths(board)["vault"]
-    if not vault.is_dir():
-        return []
+    # Secondary vault: for pain-point, the WORKFLOW repo vault
+    secondary = None
+    if board == "pain-point":
+        secondary = Path.home() / "hermes-multi-agent-workflow" / "work" / "vault" / "items"
+    seen: set[Path] = set()
     out = []
-    for p in sorted(vault.glob("*.md")):
-        item = _read_proposal_md(p)
-        if item:
-            out.append(item)
+    for base in (vault, secondary):
+        if not base or not base.is_dir():
+            continue
+        resolved = base.resolve()
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        for p in sorted(base.glob("*.md")):
+            item = _read_proposal_md(p)
+            if item:
+                out.append(item)
     return out
 
 
@@ -540,6 +558,24 @@ def _kanban_query(sql: str, params: tuple = (), board: str = BOARD_SLUG) -> List
         return rows
     except sqlite3.Error:
         return []
+
+
+def _kanban_count(sql: str, params: tuple = (), board: str = BOARD_SLUG) -> int:
+    """Return the count of rows matching a query (ignoring any LIMIT clause)."""
+    # Strip any trailing LIMIT clause for counting
+    clean = re.sub(r"\s+LIMIT\s+\d+(\s*;?\s*)$", "", sql, flags=re.IGNORECASE)
+    # Prefix with SELECT COUNT(*) FROM ( ... )
+    wrapped = f"SELECT COUNT(*) FROM ({clean})"
+    db = _board_paths(board)["db"]
+    if not db.exists():
+        return 0
+    try:
+        con = sqlite3.connect(f"file:{db}?mode=ro", uri=True, timeout=5)
+        row = con.execute(wrapped, params).fetchone()
+        con.close()
+        return row[0] if row else 0
+    except sqlite3.Error:
+        return 0
 
 
 def _card_last_comment(card_id: str, board: str = BOARD_SLUG) -> str:
@@ -691,12 +727,14 @@ def register_review_routes(app) -> None:
         gate = [i for i in _iter_proposals(board) if i["status"] in _GATE_STATUSES]
         gate.sort(key=lambda x: x.get("mtime", 0), reverse=True)
 
-        blocked = _kanban_query(
+        # Blocked cards
+        _blocked_sql = (
             "SELECT id, title, assignee, priority, status, block_kind, "
             "last_failure_error, body, created_at FROM tasks WHERE status='blocked' "
-            "ORDER BY priority DESC LIMIT 40",
-            board=board,
+            "ORDER BY priority DESC"
         )
+        blocked = _kanban_query(_blocked_sql + " LIMIT 40", board=board)
+        blocked_total = _kanban_count(_blocked_sql, board=board)
         for c in blocked:
             c["last_comment"] = _card_last_comment(c["id"], board)
             c["block_reason"] = (
@@ -704,12 +742,14 @@ def register_review_routes(app) -> None:
                 or (c.pop("last_failure_error", "") or "")
             )
 
-        ready = _kanban_query(
+        # Ready/todo cards
+        _ready_sql = (
             "SELECT id, title, assignee, priority, status, created_at, "
             "model_override, provider_override FROM tasks "
-            "WHERE status IN ('ready','todo') ORDER BY priority DESC LIMIT 20",
-            board=board,
+            "WHERE status IN ('ready','todo') ORDER BY priority DESC"
         )
+        ready = _kanban_query(_ready_sql + " LIMIT 20", board=board)
+        ready_total = _kanban_count(_ready_sql, board=board)
         now_ts = datetime.now(timezone.utc).timestamp()
         profile_models = _load_profile_models()
         for c in ready:
@@ -719,8 +759,11 @@ def register_review_routes(app) -> None:
             "SELECT id, title, assignee, priority, status, created_at, started_at, "
             "last_heartbeat_at, worker_pid, current_run_id, max_runtime_seconds, "
             "model_override, provider_override "
-            "FROM tasks WHERE status='running' ORDER BY priority DESC LIMIT 10",
+            "FROM tasks WHERE status='running' ORDER BY priority DESC",
             board=board,
+        )
+        running_total = _kanban_count(
+            "SELECT id FROM tasks WHERE status='running'", board=board
         )
         for c in running:
             c["last_comment"] = _card_last_comment(c["id"], board)
@@ -741,11 +784,14 @@ def register_review_routes(app) -> None:
             else:
                 c["run"]["beat_age_s"] = None
             _attach_actual_llm(c, profile_models)
-        completed = _kanban_query(
+        _completed_sql = (
             "SELECT id, title, assignee, priority, status, created_at, "
             "completed_at, result FROM tasks WHERE status='done' "
-            "ORDER BY completed_at DESC LIMIT 30",
-            board=board,
+            "ORDER BY completed_at DESC"
+        )
+        completed = _kanban_query(_completed_sql + " LIMIT 30", board=board)
+        completed_total = _kanban_count(
+            "SELECT id FROM tasks WHERE status='done'", board=board
         )
         for c in completed:
             ev = _card_completed_event(c["id"], board)
@@ -773,6 +819,10 @@ def register_review_routes(app) -> None:
         return jsonify({"gate": gate, "blocked": blocked,
                         "ready": ready, "running": running,
                         "completed": completed,
+                        "blocked_total": blocked_total,
+                        "ready_total": ready_total,
+                        "running_total": running_total,
+                        "completed_total": completed_total,
                         # R8: silent judges surface in the overview alert list
                         "judge_alerts": _judge_silence_alerts(),
                         "board": board,
