@@ -284,16 +284,9 @@ var RV = {
     var liveN = (RV.data.gate||[]).length + (RV.data.blocked||[]).length
               + (RV.data.running||[]).length + (RV.data.ready||[]).length;
     document.getElementById('liveCount').textContent = liveN;
-    // Update blocked count to show real total (not just the displayed count)
-    var blockedTotal = RV.data.blocked_total || 0;
-    var blockedDisplay = RV.data.blocked.length;
-    document.getElementById('blockedCount').textContent = blockedTotal > blockedDisplay
-      ? blockedDisplay + '+' : blockedTotal;
+    document.getElementById('blockedCount').textContent = RV.data.blocked_total || 0;
     // Update running count to show real total
-    var runningTotal = RV.data.running_total || 0;
-    var runningDisplay = RV.data.running.length;
-    document.getElementById('runningCount').textContent = runningTotal > runningDisplay
-      ? runningDisplay + '+' : runningTotal;
+    document.getElementById('runningCount').textContent = RV.data.running_total || 0;
   },
   /* R8: silent-judge alert banner (judge_alerts from /api/review/overview) */
   renderJudgeAlerts: function(items){
@@ -349,9 +342,7 @@ var RV = {
     return '<span class="tag" style="background:var(--danger-bg);color:var(--danger)">♥ dead ' + RV.fmtDur(ageSec) + '</span>';
   },
   renderCompleted: function(items){
-    var displayed = items.length;
-    var completedTotal = RV.data.completed_total || 0;
-    var countText = completedTotal > displayed ? displayed + '+' : completedTotal;
+    var countText = RV.data.completed_total || items.length;
     document.getElementById('completedCount').textContent = countText;
     document.getElementById('completedCount2').textContent = countText;
     var box = document.getElementById('completedList');
@@ -683,10 +674,8 @@ var RV = {
     return '<div class="muted" style="margin-top:2px">⚡ live usage — ' + where + ' — ' + bits.join(' · ') + '</div>';
   },
   renderList: function(kind, items, compact, total){
-    var displayed = items.length;
-    var displayTotal = total || displayed;
-    var countText = displayTotal > displayed ? displayed + '+' : displayTotal;
-    document.getElementById(kind + 'Count').textContent = countText;
+    var displayTotal = total || items.length;
+    document.getElementById(kind + 'Count').textContent = displayTotal;
     var box = document.getElementById(kind + 'List');
     if(!items.length){ box.innerHTML = '<div class="empty">None</div>'; return; }
     var html = '';
