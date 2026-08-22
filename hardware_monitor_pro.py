@@ -1456,6 +1456,17 @@ def _archive_series(records, metric):
 # ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
+@app.after_request
+def _no_cache(resp):
+    """Never let browsers cache the dashboard page — stale HTML hides new UI
+    (e.g. the per-service log buttons). SSE streams must stay streamable."""
+    if resp.mimetype == 'text/html' or resp.mimetype.startswith('text/html'):
+        resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+        resp.headers['Pragma'] = 'no-cache'
+        resp.headers['Expires'] = '0'
+    return resp
+
+
 @app.route('/')
 def index():
     return render_template('index.html',
