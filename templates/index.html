@@ -254,6 +254,45 @@
     .card:nth-child(2){animation-delay:.05s}
     .card:nth-child(3){animation-delay:.1s}
     .card:nth-child(4){animation-delay:.15s}
+  .log-btn {
+    background: transparent; border: 1px solid var(--border, #333);
+    border-radius: 6px; padding: 4px 8px; font-size: .95rem; cursor: pointer;
+    color: var(--text-2, #aaa);
+  }
+  .log-btn:hover { background: var(--bg-2, #1c1c1e); color: var(--text-1, #eee); }
+
+  /* Live log viewer modal (bottom-sheet on mobile, centered dialog on desktop) */
+  .log-modal {
+    position: fixed; inset: 0; z-index: 1000; display: flex;
+    align-items: flex-end; justify-content: center; background: rgba(0,0,0,.6);
+  }
+  .log-sheet {
+    width: 100%; max-width: 860px; max-height: 82vh;
+    background: var(--bg-1, #111214); border-radius: 12px 12px 0 0;
+    display: flex; flex-direction: column; overflow: hidden;
+    box-shadow: 0 -8px 40px rgba(0,0,0,.5);
+  }
+  @media (min-width: 768px) {
+    .log-modal { align-items: center; }
+    .log-sheet { border-radius: 12px; max-height: 78vh; }
+  }
+  .log-head {
+    display: flex; align-items: center; gap: 10px; padding: 10px 14px;
+    border-bottom: 1px solid var(--border, #333); flex-shrink: 0;
+  }
+  .log-head #logTitle { font-weight: 600; font-size: .95rem; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .log-status { font-size: .75rem; color: var(--success, #3fb950); }
+  .log-head button {
+    background: transparent; border: 1px solid var(--border, #333);
+    border-radius: 6px; padding: 4px 10px; font-size: .9rem; cursor: pointer; color: var(--text-1, #eee);
+  }
+  .log-view {
+    flex: 1; overflow-y: auto; margin: 0; padding: 12px 14px;
+    background: #0b0d10; color: #c9d1d9; font-family: ui-monospace, 'Cascadia Code', Menlo, Consolas, monospace;
+    font-size: 12.5px; line-height: 1.5; white-space: pre-wrap; word-break: break-word;
+    min-height: 30vh; touch-action: manipulation;
+  }
+  .log-view:empty::before { content: 'waiting for log lines…'; color: var(--text-3, #666); }
   </style>
 </head>
 <body>
@@ -1278,9 +1317,9 @@ function renderSystemd(services) {
     const cls = s.active ? 'success' : 'danger';
     const icon = s.active ? '🟢' : '🔴';
     const enTxt = s.enabled ? '' : ' (disabled)';
-    return '<tr><td style="white-space:nowrap">'+icon+' <span style="font-weight:600">'+s.name+'</span>'+enTxt+'</td><td><span class="badge" style="background:var(--'+cls+'-bg);color:var(--'+cls+')">'+(s.active?'active':'inactive')+'</span></td></tr>';
+    return '<tr><td style="white-space:nowrap">'+icon+' <span style="font-weight:600">'+s.name+'</span>'+enTxt+'</td><td><span class="badge" style="background:var(--'+cls+'-bg);color:var(--'+cls+')">'+(s.active?'active':'inactive')+'</span></td><td><button class="log-btn" data-svc="'+encodeURIComponent(s.name)+'" onclick="openLogs(this.dataset.svc)" title="Live logs">📄</button></td></tr>';
   }).join('');
-  body.innerHTML = '<div class="table-wrap"><table><thead><tr><th>Service</th><th>Status</th></tr></thead><tbody>'+rows+'</tbody></table></div>';
+  body.innerHTML = '<div class="table-wrap"><table><thead><tr><th>Service</th><th>Status</th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div>';
 }
 
 // RENDER FRIGATE
@@ -2159,5 +2198,60 @@ ensureRangeBadges();
 setTimeout(setupMetricClicks, 500);
 
 </script>
+  <!-- LIVE LOG VIEWER MODAL -->
+  <div class="log-modal" id="logModal" style="display:none" onclick="if(event.target===this)closeLogs()">
+    <div class="log-sheet">
+      <div class="log-head">
+        <span id="logTitle">📄 Logs</span>
+        <span class="log-status" id="logStatus"></span>
+        <button id="logPauseBtn" onclick="toggleLogPause()" title="Pause auto-scroll">⏸</button>
+        <button onclick="closeLogs()" title="Close">✕</button>
+      </div>
+      <pre class="log-view" id="logView"></pre>
+    </div>
+  </div>
+
+  <script>
+  // LIVE LOG VIEWER (SSE tail per service)
+  let _logES = null, _logAutoScroll = true;
+  function openLogs(svcEnc) {
+    const name = decodeURIComponent(svcEnc);
+    const view = document.getElementById('logView');
+    const title = document.getElementById('logTitle');
+    const status = document.getElementById('logStatus');
+    view.textContent = '';
+    title.textContent = '📄 ' + name;
+    status.textContent = '';
+    document.getElementById('logModal').style.display = 'flex';
+    document.getElementById('logPauseBtn').textContent = '⏸';
+    _logAutoScroll = true;
+    if (_logES) _logES.close();
+    const url = _api('/api/logs/' + encodeURIComponent(name));
+    _logES = new EventSource(url);
+    _logES.onopen = () => { status.textContent = '● live'; status.style.color = 'var(--success,#3fb950)'; };
+    _logES.onmessage = (ev) => {
+      try {
+        const d = JSON.parse(ev.data);
+        if (typeof d.line !== 'string') return;
+        view.textContent += d.line + '\n';
+        const lines = view.textContent.split('\n');
+        if (lines.length > 2000) view.textContent = lines.slice(-2000).join('\n');
+        if (_logAutoScroll) view.scrollTop = view.scrollHeight;
+      } catch (e) { /* ignore malformed frames */ }
+    };
+    _logES.onerror = () => { status.textContent = 'reconnecting…'; status.style.color = 'var(--warning,#d29922)'; };
+  }
+  function toggleLogPause() {
+    _logAutoScroll = !_logAutoScroll;
+    const btn = document.getElementById('logPauseBtn');
+    btn.textContent = _logAutoScroll ? '⏸' : '▶';
+    btn.title = _logAutoScroll ? 'Pause auto-scroll' : 'Resume auto-scroll';
+    if (_logAutoScroll) { const v = document.getElementById('logView'); v.scrollTop = v.scrollHeight; }
+  }
+  function closeLogs() {
+    if (_logES) { _logES.close(); _logES = null; }
+    document.getElementById('logModal').style.display = 'none';
+  }
+  </script>
 </body>
 </html>

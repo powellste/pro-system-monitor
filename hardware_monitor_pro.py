@@ -898,7 +898,7 @@ def _collect_trading_engine():
 # ---------------------------------------------------------------------------
 # Systemd service health
 # ---------------------------------------------------------------------------
-SERVICES_TO_MONITOR = ['llama-server@Qwen3.6-35B-A3B-UD-Q4_K_M', 'hermes-engine',
+SERVICES_TO_MONITOR = ['llama-server@gemma-4-12b-it-UD-Q5_K_XL', 'hermes-engine',
                        'hermes-gateway', 'hermes-dashboard', 'hermes-webui',
                        'hermes-sysmon', 'frigate']
 _systemd_cache = []
@@ -1755,6 +1755,16 @@ try:
     register_stats_routes(app)
 except Exception as _stats_exc:  # pragma: no cover — never take the monitor down
     print(f"[MONITOR] stats routes unavailable: {_stats_exc}")
+
+
+# ---------------------------------------------------------------------------
+# Live log streaming routes (per-service tail -f over SSE)
+# ---------------------------------------------------------------------------
+try:
+    from log_routes import register_log_routes
+    register_log_routes(app)
+except Exception as _log_exc:  # pragma: no cover — never take the monitor down
+    print(f"[MONITOR] log routes unavailable: {_log_exc}")
 
 
 # ---------------------------------------------------------------------------
